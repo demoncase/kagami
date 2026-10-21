@@ -22,11 +22,28 @@ py -3 -m venv .venv
 pip install -r requirements.txt
 ```
 
+ffmpeg comes with the `imageio-ffmpeg` wheel; nothing else to install.
+
 Make a key at platform.comfy.org and keep it in a text file outside the repo.
 
-## Status
+## Run it (terminal, for now)
 
-- `tools/probe.py`: reads the H3 model schemas from Comfy Router and asks for a price estimate. Free: it never runs a model.
+```powershell
+python -m kagami copy --video clip.mp4 --image me.png
+python -m kagami copy --video clip.mp4 --image me.png --fake
+python -m kagami copy --video clip.mp4 --image me.png --run --key-file E:\keys\comfy-router.txt
+python -m kagami swap --video clip.mp4 --image mug.png --target "the white mug on the desk" --run --key-file E:\keys\comfy-router.txt
+```
+
+The first line is a dry run (the default): the request is built, checked against H3's limits and saved, nothing is sent. `--fake` runs the whole path offline. `--run` is the one paid call; Kagami never retries it. If an answer is lost, `python -m kagami replay runs\<folder> --key-file ...` resends the same request under the same Idempotency-Key and Router hands back the first result instead of billing again.
+
+Each run gets a folder under `runs\` with `receipt.json` and, when a video was made, `output.mp4` (the provider's file, byte for byte).
+
+## Tools
+
+- `tools/probe.py`: reads the H3 model schemas from Comfy Router. Free.
+- `tools/probe_gate.py`: checks the Router run route is open with an invalid-on-purpose request. Free.
+- `tools/probe_local.py`: lists the MiniMax H3 nodes in a running ComfyUI and their inputs. Free.
 
 ## License
 
