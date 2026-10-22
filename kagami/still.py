@@ -41,6 +41,9 @@ COPY_STILL = (
     "Image 1 with the person in Image 2: their face, skin tone, hair, build and clothing exactly as in Image 2. "
     "Everything else stays as it is in Image 1."
 )
+# The frame sentence when the cast map names what changes (no "same place" or "same light": a place or a look may change them).
+COPY_FRAME = ("Image 1 is one frame from a video. Recreate this exact frame as a photograph: the same camera angle, "
+              "framing, lens, pose, body position and composition.")
 SWAP_STILL = (
     "Image 1 is one frame from a video. Keep it exactly as it is, as a photograph: the same people, place, "
     "camera, framing and light. Change one thing only: {target} becomes the one in Image 2, matching Image 2 "
@@ -77,18 +80,31 @@ def b64(path: Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("ascii")
 
 
-def prompt_for(mode: str, target: str, images: list[tuple[Path, str]], extra: str) -> str:
+def still_parts(mode: str, target: str, images: list[engine.Ref], extra: str, change: str = "",
+                others: str = "keep") -> list[dict]:
+    """The still's prompt from the same cast map as the video's, worded for one frame: the frame sentence,
+    one sentence per image (yours are Image 2.. here, the frame is Image 1), the extras sentence, the change
+    word for word, then --extra. With no roles set this is the prompt Kagami has always written."""
+    images = [engine.Ref(Path(r[0]), *r[1:]) for r in images]
+    engine.check_cast(mode, images, others)
+    mapped = any(r.role for r in images)
     if mode == "copy":
-        text = COPY_STILL
+        parts = [("frame", COPY_FRAME)] if mapped else [("copy", COPY_STILL)]
     else:
         if not target:
             raise engine.Refused("swap needs --target: what in the clip is replaced")
-        text = SWAP_STILL.format(target=target)
-    # The user's images are Image 2.. here (the frame is Image 1).
-    lines = [f"Image {n} is {what}." for n, (_, what) in enumerate(images, 2) if what]
-    if lines:
-        text += " " + " ".join(lines)
-    return f"{text} {extra}".strip()
+        parts = [("swap", SWAP_STILL.format(target=target))]
+    parts += engine.cast_lines(images, 2, others, clip="Image 1", it="the frame", moves="pose")
+    if change.strip():
+        parts.append(("change", engine.rewrite_change(change, len(images), 2, clip="Image 1")))
+    if extra.strip():
+        parts.append(("extra", extra.strip()))
+    return [{"part": k, "text": t} for k, t in parts]
+
+
+def prompt_for(mode: str, target: str, images: list[engine.Ref], extra: str, change: str = "",
+               others: str = "keep") -> str:
+    return " ".join(p["text"] for p in still_parts(mode, target, images, extra, change, others))
 
 
 def body_for(model: str, files: list[Path], prompt: str, w: int, h: int, seed: int | None) -> dict:
@@ -168,9 +184,11 @@ def save_output(model: str, out: dict | object, folder: Path) -> tuple[Path | No
     return f, info
 
 
-def make(mode: str, video: Path, images: list[tuple[Path, str]], *, target: str = "", extra: str = "",
-         at: float = 0.0, models: tuple[str, ...] = ("nbp",), how: str = "dry", api_key: str | None = None,
-         root: Path = Path("stills"), seed: int | None = None) -> tuple[Path, dict]:
+def make(mode: str, video: Path, images: list[engine.Ref], *, target: str = "", extra: str = "",
+         change: str = "", others: str = "keep", at: float = 0.0, models: tuple[str, ...] = ("nbp",),
+         how: str = "dry", api_key: str | None = None, root: Path = Path("stills"),
+         seed: int | None = None) -> tuple[Path, dict]:
+    images = [engine.Ref(Path(r[0]), *r[1:]) for r in images]
     if how == "run" and not api_key:
         raise engine.Refused("a real run needs a key: --key-file or COMFY_API_KEY")
     if mode not in ("copy", "swap"):
@@ -182,7 +200,8 @@ def make(mode: str, video: Path, images: list[tuple[Path, str]], *, target: str 
     facts = media.video_facts(video)
     if not 0 <= at < facts.seconds:
         raise engine.Refused(f"--at {at} is outside the clip (0 to {facts.seconds:.2f} s)")
-    prompt = prompt_for(mode, target, images, extra)
+    parts = still_parts(mode, target, images, extra, change, others)
+    prompt = " ".join(p["text"] for p in parts)
 
     root.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -194,7 +213,7 @@ def make(mode: str, video: Path, images: list[tuple[Path, str]], *, target: str 
     d.mkdir()
     frame = d / "frame.png"
     grab_frame(video, at, frame)
-    files = [frame] + [p for p, _ in images]
+    files = [frame] + [r.path for r in images]
     for m in models:
         for f in files:
             check_image(f, m)
@@ -205,11 +224,14 @@ def make(mode: str, video: Path, images: list[tuple[Path, str]], *, target: str 
         "video": {"path": str(video), "name": video.name, "sha256": media.sha256(video), "seconds": round(facts.seconds, 3)},
         "frame": {"at": at, "path": str(frame), "sha256": media.sha256(frame), "size": f"{fw}x{fh}",
                   "how": "ffmpeg, one frame at that time, PNG"},
-        "images": [{"label": f"Image {n}", "path": str(p), "name": p.name, "sha256": media.sha256(p), "what": w}
-                   for n, (p, w) in enumerate(images, 2)],
-        "prompt": prompt, "target": target, "extra": extra, "results": {}, "approved": None,
-        "args": {"mode": mode, "video": str(video), "images": [[str(p), w] for p, w in images], "target": target,
-                 "extra": extra, "at": at, "seed": seed},
+        "images": [{"label": f"Image {n}", "path": str(r.path), "name": r.path.name, "sha256": media.sha256(r.path),
+                    "what": r.what, **({"cast": {"role": r.role, "who": r.who or None}} if r.role else {})}
+                   for n, r in enumerate(images, 2)],
+        "prompt": prompt, "target": target, "extra": extra,
+        **engine.cast_record(engine.Inputs(mode=mode, video=video, images=images, change=change, others=others), parts),
+        "results": {}, "approved": None,
+        "args": {"mode": mode, "video": str(video), "images": [[str(r.path), r.what, r.role, r.who] for r in images],
+                 "target": target, "extra": extra, "change": change, "others": others, "at": at, "seed": seed},
     }
     path = d / "receipt.json"
 

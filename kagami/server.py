@@ -22,7 +22,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from . import edit, engine, finish, media, still, workflow
+from . import edit, engine, finish, media, prices, still, workflow
 
 ROOT = Path.cwd()
 WORK, RUNS, STILLS = ROOT / "work", ROOT / "runs", ROOT / "stills"
@@ -88,8 +88,14 @@ def rel(p: str | Path) -> str:
         return p.as_posix()
 
 
-def _image_list(items: list[dict]) -> list[tuple[Path, str]]:
-    return [(ROOT / i["path"], (i.get("what") or "").strip()) for i in items]
+def _image_list(items: list[dict]) -> list[engine.Ref]:
+    """The page's image cards: what each is, or its role in the cast map and who it replaces."""
+    out = []
+    for i in items:
+        role = i.get("role") or ""
+        out.append(engine.Ref(ROOT / i["path"], (i.get("what") or "").strip() if not role else "", role,
+                              (i.get("who") or "").strip() if role in ("person", "object") else ""))
+    return out
 
 
 def create_app() -> FastAPI:
@@ -101,8 +107,10 @@ def create_app() -> FastAPI:
 
     @app.get("/api/config")
     def config():
+        h3 = prices.table()["models"][engine.MODEL]
         return {"how": State.how, "key": bool(State.key), "version": engine.VERSION,
-                "limits": {"images": engine.MAX_IMAGES, "video_seconds": [2, 15], "image_px": [media.IMAGE_MIN, media.IMAGE_MAX]}}
+                "limits": {"images": engine.MAX_IMAGES, "video_seconds": [2, 15], "image_px": [media.IMAGE_MIN, media.IMAGE_MAX]},
+                "images_included": h3["images_included"], "credits_per_extra_image": h3["credits_per_extra_image"]}
 
     @app.post("/api/upload")
     async def upload(request: Request, name: str):
@@ -185,7 +193,8 @@ def create_app() -> FastAPI:
 
         def go():
             d, r = still.make(b["mode"], ROOT / b["video"], _image_list(b.get("images", [])), target=b.get("target", ""),
-                              at=float(b.get("at", 0)), models=models, how=State.how, api_key=State.key, root=STILLS)
+                              change=b.get("change", ""), others=b.get("others", "keep"), at=float(b.get("at", 0)),
+                              models=models, how=State.how, api_key=State.key, root=STILLS)
             return _still_view(d, r)
 
         return {"job": _job("still", go)}
@@ -203,7 +212,8 @@ def create_app() -> FastAPI:
     async def make_video(request: Request):
         b = await request.json()
         i = engine.Inputs(mode=b["mode"], video=ROOT / b["video"], images=_image_list(b.get("images", [])),
-                          target=b.get("target", ""), resolution=b.get("resolution", "768P"), fit=bool(b.get("fit", True)),
+                          target=b.get("target", ""), change=b.get("change", ""), others=b.get("others", "keep"),
+                          resolution=b.get("resolution", "768P"), fit=bool(b.get("fit", True)),
                           still=(ROOT / b["still"]) if b.get("still") else None, copies=RUNS / "_send_copies")
 
         def go():
@@ -298,10 +308,10 @@ def _run_view(d: Path, full: bool = False) -> dict:
             "outcome": r.get("outcome"), "credits": r.get("credits_used"), "usd": r.get("usd_reported"),
             "price_note": r.get("price_note"), "credits_computed": r.get("credits_computed"),
             "usd_computed": r.get("usd_computed"), "price_date": (r.get("price_source") or {}).get("date"),
-            "prompt": r.get("prompt"),
+            "prompt": r.get("prompt"), "change": r.get("change"), "extras": r.get("extras"),
             "settings": r.get("settings"), "files": files, "warp": (fz.get("synced") or {}).get("warp"),
             "still": (r.get("still") or {}).get("pick"), "inputs": [
-                {k: f.get(k) for k in ("label", "name", "sha256", "size", "seconds", "what")} for f in r.get("inputs", [])],
+                {k: f.get(k) for k in ("label", "name", "sha256", "size", "seconds", "what", "cast")} for f in r.get("inputs", [])],
             "error": (r.get("error") or {}).get("message"), "seconds_waited": r.get("seconds_waited"),
             "length": ((fz.get("synced") or {}).get("seconds")), "fps": (r.get("output") or {}).get("fps"),
             "edits": [{"version": e["version"], "trim": e["trim"], "nudge": e["nudge_frames"],

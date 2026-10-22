@@ -70,10 +70,18 @@ header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-
 .card input { width: 100%; margin-top: 4px; }
 .card .x { position: absolute; top: 6px; right: 6px; border: 0; width: 24px; height: 24px; border-radius: 50%; background: var(--scrim); color: var(--ink); cursor: pointer; }
 .card.picked { outline: 3px solid var(--accent); outline-offset: -3px; }
-input[type=text], select { font: 14px var(--sans); color: var(--field-ink); background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-input[type=text]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+input[type=text], select, textarea { font: 14px var(--sans); color: var(--field-ink); background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+input[type=text]:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; }
 input[type=checkbox] { accent-color: var(--accent); }
 .target input { width: 100%; }
+#imgGrid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.card select { width: 100%; margin-top: 6px; padding: 6px 8px; }
+.card .role-hint { margin-top: 4px; font-size: 12.5px; line-height: 1.4; }
+.others { display: flex; gap: 6px 16px; align-items: center; flex-wrap: wrap; margin-top: 14px; font-size: 14px; }
+.others label { display: inline-flex; gap: 6px; align-items: center; }
+input[type=radio] { accent-color: var(--accent); }
+.change { margin-top: 14px; }
+.change textarea { display: block; width: 100%; margin-top: 4px; resize: vertical; min-height: 64px; line-height: 1.45; }
 button.go { font: 600 15px var(--sans); background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 11px 18px; cursor: pointer; }
 button.go:hover:not(:disabled) { background: var(--accent-hover); }
 button.go:disabled { opacity: .4; cursor: not-allowed; }
@@ -187,13 +195,23 @@ footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--lin
 
   <section class="step" id="s2">
     <h2><span class="n">2</span><span id="t2">Your cast</span></h2>
-    <p class="hint" id="h2">Image 1 is the person who takes over the clip. Add more angles or outfits if you have them (up to 9).</p>
+    <p class="hint" id="h2"></p>
     <div class="grid" id="imgGrid"></div>
     <div class="drop" id="imgDrop" style="margin-top:12px">Drop images here, or click to choose</div>
     <input type="file" id="imgFile" accept="image/png,image/jpeg,image/webp" multiple hidden>
+    <div class="note" id="imgCost"></div>
+    <div class="problem" id="castProblem"></div>
+    <div class="others hidden" id="othersBox"><b>Everyone else in the clip</b>
+      <label><input type="radio" name="others" value="keep" checked> kept as they are</label>
+      <label><input type="radio" name="others" value="restyle"> restyled to fit</label></div>
     <div class="target hidden" id="targetBox" style="margin-top:14px">
       <label for="target"><b>What gets replaced</b> <span class="hint">point at it in words</span></label>
       <input type="text" id="target" placeholder="the white t-shirt she is wearing">
+    </div>
+    <div class="change">
+      <label for="change"><b>Describe the change</b> <span class="hint">optional, in your words; mention images as @image1</span></label>
+      <textarea id="change" rows="2" placeholder="Make it night, neon on wet streets. @image1 waves at the camera at the end."></textarea>
+      <div class="problem" id="changeProblem"></div>
     </div>
   </section>
 
@@ -274,7 +292,18 @@ footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--lin
 
 <script>
 const $ = (id) => document.getElementById(id);
-const S = { mode: "copy", clip: null, images: [], still: null, stillFolder: null, at: 0, how: "fake" };
+const S = { mode: "copy", clip: null, images: [], still: null, stillFolder: null, at: 0, how: "fake", included: 5, perImage: 12 };
+const ROLES = {
+  "": { name: "Reference", box: "what it is (optional)" },
+  person: { name: "Person", box: "who in the clip: the man in the orange suit" },
+  place: { name: "Place", hint: "The setting. The camera, the ground and where everyone stands are kept." },
+  object: { name: "Object", box: "what in the clip: the red ball" },
+  look: { name: "Look", hint: "Style and light only; nothing in the clip is replaced." },
+};
+const HINT2 = {
+  copy: "Image 1 is the person who takes over the clip. Add more angles or outfits (up to 9), or give each image a role: a person, a place, an object or a look.",
+  swap: "Image 1 is what goes into the clip: a product, an outfit, an object. Plain background works best.",
+};
 const TAB_NAMES = { split: "Split", side: "Side by side", synced: "Synced + sound", raw: "As H3 made it" };
 
 async function api(path, opts = {}) {
@@ -360,20 +389,30 @@ async function loadStrip() {
 wireDrop($("imgDrop"), $("imgFile"), async (files) => {
   for (const f of files) {
     if (S.images.length >= 9) break;
-    try { S.images.push({ ...(await upload(f)), what: "" }); } catch (e) { alert(f.name + ": " + e.message); }
+    try { S.images.push({ ...(await upload(f)), what: "", role: "", who: "" }); } catch (e) { alert(f.name + ": " + e.message); }
   }
   drawImages(); refresh();
 });
+// The cast map is Copy's; Swap replaces one thing (the target), so its images keep their plain words.
+const roleOf = (im) => (S.mode === "copy" ? im.role : "");
+const cast = () => S.images.map((im) => ({ path: im.path, what: im.what, role: roleOf(im), who: im.who }));
 function drawImages() {
-  $("imgGrid").innerHTML = S.images.map((im, i) => `
+  $("imgGrid").innerHTML = S.images.map((im, i) => {
+    const r = roleOf(im), R = ROLES[r], field = r ? "who" : "what";
+    return `
     <div class="card"><img src="${file(im.path)}" alt="">
       <button class="x" data-i="${i}" title="Remove">×</button>
       <div class="body"><div class="lab">Image ${i + 1 + (S.still ? 1 : 0)}</div>
-        <div class="hint mono">${esc(im.size)}</div>
+        <div class="hint mono">${esc(im.size)} · @image${i + 1}</div>
         ${im.problem ? `<div class="note">${esc(im.problem)}. A padded copy is sent; your file is not changed.</div>` : ""}
-        <input type="text" data-w="${i}" placeholder="what it is (optional)" value="${esc(im.what)}"></div></div>`).join("");
+        ${S.mode === "copy" ? `<select data-r="${i}" aria-label="Role of image ${i + 1}">${Object.entries(ROLES).map(([k, v]) =>
+          `<option value="${k}"${k === r ? " selected" : ""}>${v.name}</option>`).join("")}</select>` : ""}
+        ${R.box ? `<input type="text" data-f="${field}" data-i="${i}" placeholder="${esc(R.box)}" value="${esc(im[field])}">`
+                : `<div class="hint role-hint">${esc(R.hint)}</div>`}</div></div>`;
+  }).join("");
   $("imgGrid").querySelectorAll(".x").forEach((b) => b.onclick = () => { S.images.splice(+b.dataset.i, 1); drawImages(); refresh(); });
-  $("imgGrid").querySelectorAll("input[data-w]").forEach((inp) => inp.oninput = () => { S.images[+inp.dataset.w].what = inp.value; });
+  $("imgGrid").querySelectorAll("select[data-r]").forEach((sel) => sel.onchange = () => { S.images[+sel.dataset.r].role = sel.value; drawImages(); refresh(); });
+  $("imgGrid").querySelectorAll("input[data-f]").forEach((inp) => inp.oninput = () => { S.images[+inp.dataset.i][inp.dataset.f] = inp.value; refresh(); });
 }
 
 // mode
@@ -385,14 +424,35 @@ $("modeSeg").querySelectorAll("button").forEach((b) => b.onclick = () => {
   $("t2").textContent = swap ? "The new thing" : "Your cast";
   $("h1").textContent = swap ? "Everything in it is kept except the one thing you replace. 2 to 15 seconds."
                              : "Its motion, timing and camera are kept. 2 to 15 seconds.";
-  $("h2").textContent = swap ? "Image 1 is what goes into the clip: a product, an outfit, an object. Plain background works best."
-                             : "Image 1 is the person who takes over the clip. Add more angles or outfits if you have them (up to 9).";
+  $("h2").textContent = HINT2[S.mode];
   S.still = null; S.stillFolder = null; $("stillGrid").innerHTML = ""; drawImages(); refresh();
 });
 $("target").oninput = refresh;
+$("change").oninput = refresh;
+document.querySelectorAll("input[name=others]").forEach((r) => r.onchange = refresh);
+const others = () => document.querySelector("input[name=others]:checked").value;
 
+// The same refusals the engine makes, said before anything is clicked.
+function castProblem() {
+  const c = cast(), people = c.filter((x) => x.role === "person");
+  const obj = c.findIndex((x) => x.role === "object" && !x.who.trim());
+  if (obj >= 0) return `@image${obj + 1} is an object: say what in the clip it replaces.`;
+  if (people.length > 1 && people.some((x) => !x.who.trim())) return "Two or more people are mapped: say who each one replaces.";
+  return "";
+}
+function changeProblem() {
+  const n = S.images.length;
+  for (const m of $("change").value.matchAll(/@(image|video)(\d+)/gi)) {
+    const k = +m[2];
+    if (m[1].toLowerCase() === "video" && k !== 1) return `@video${k} is not attached: there is one clip, @video1.`;
+    if (m[1].toLowerCase() === "image" && (k < 1 || k > n))
+      return `@image${k} is not attached: ${n} image${n === 1 ? "" : "s"} added${n ? ` (@image1${n > 1 ? " to @image" + n : ""})` : ""}.`;
+  }
+  return "";
+}
 function ready() {
-  return S.clip && !S.clip.problem && S.images.length && (S.mode === "copy" || $("target").value.trim());
+  return S.clip && !S.clip.problem && S.images.length && (S.mode === "copy" || $("target").value.trim())
+    && !castProblem() && !changeProblem();
 }
 function refresh() {
   $("stillBtn").disabled = !ready() || (!$("mNbp").checked && !$("mFlux").checked);
@@ -404,8 +464,17 @@ function refresh() {
   const lines = [];
   if (S.clip) lines.push(`<b>Video 1</b> ${esc(S.clip.name)} (motion${S.mode === "swap" ? " and everything kept" : ""})`);
   if (S.still) lines.push(`<b>Image 1</b> your approved preview (${esc(S.still)}, from ${S.stillAt.toFixed(2)} s): a reference for the look${S.stillAt >= 0.05 ? ", not the opening frame" : ""}`);
-  S.images.forEach((im, i) => lines.push(`<b>Image ${i + 1 + n}</b> ${esc(im.name)}${im.what ? " - " + esc(im.what) : ""}`));
+  cast().forEach((im, i) => {
+    const said = im.role ? ROLES[im.role].name.toLowerCase() + (im.who.trim() ? ": " + esc(im.who.trim()) : "") : esc(im.what);
+    lines.push(`<b>Image ${i + 1 + n}</b> ${esc(S.images[i].name)}${said ? " - " + said : ""}`);
+  });
+  if ($("change").value.trim()) lines.push(`<b>Change</b> ${esc($("change").value.trim())}`);
   $("sends").innerHTML = lines.map((l) => `<li>${l}</li>`).join("") || "<li>Add a clip and an image first.</li>";
+  const sent = S.images.length + n, extra = sent - S.included;
+  $("imgCost").textContent = extra > 0 ? `${sent} images${n ? " with the preview" : ""}: past ${S.included}, each extra image costs about ${Math.round(S.perImage)} credits (${extra} extra).` : "";
+  $("castProblem").textContent = castProblem();
+  $("changeProblem").textContent = changeProblem();
+  $("othersBox").classList.toggle("hidden", !cast().some((x) => x.role === "person"));
 }
 $("mNbp").onchange = refresh; $("mFlux").onchange = refresh;
 
@@ -431,7 +500,8 @@ $("stillBtn").onclick = async () => {
   $("stillBtn").disabled = true; $("stillGrid").innerHTML = "";
   try {
     const { job } = await api("/api/still", { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode: S.mode, video: S.clip.path, images: S.images, target: $("target").value, at: S.at, models }) });
+      body: JSON.stringify({ mode: S.mode, video: S.clip.path, images: cast(), target: $("target").value, at: S.at, models,
+                             change: $("change").value, others: others() }) });
     const j = await follow(job, $("stillStatus"), null, "Recasting the frame");
     if (j.state === "done") drawStills(j.result);
   } catch (e) { $("stillStatus").textContent = e.message; }
@@ -463,7 +533,8 @@ $("runBtn").onclick = async () => {
   $("runBtn").disabled = true; $("runLog").textContent = "";
   try {
     const { job } = await api("/api/run", { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode: S.mode, video: S.clip.path, images: S.images, target: $("target").value,
+      body: JSON.stringify({ mode: S.mode, video: S.clip.path, images: cast(), target: $("target").value,
+                             change: $("change").value, others: others(),
                              still: S.still ? S.stillFolder : null, resolution: $("res").value, fit: true }) });
     const j = await follow(job, $("runStatus"), $("runLog"), "Making the video");
     if (j.state === "done") { showRun(j.result); loadHistory(); }
@@ -509,8 +580,9 @@ function showRun(v, version) {
     <tr><th>Made</th><td class="mono">${esc(v.made_at)} · ${esc(v.how)} · ${esc(v.mode)}</td></tr>
     <tr><th>Cost</th><td class="mono">${esc(v.how === "fake" ? "simulated, nothing charged" : runPrice(v))}${v.price_note ? `<br><span class="hint">${esc(v.price_note)}</span>` : ""}</td></tr>
     <tr><th>Settings</th><td class="mono">${esc(JSON.stringify(v.settings))}</td></tr>
+    ${v.change ? `<tr><th>Change</th><td>${esc(v.change)}</td></tr>` : ""}
     <tr><th>Prompt</th><td>${esc(v.prompt)}</td></tr>
-    ${v.inputs.map((f) => `<tr><th>${esc(f.label)}</th><td class="mono">${esc(f.name)} · ${esc(f.size || "")} ${f.seconds ? esc(f.seconds) + " s" : ""}<br>sha256 ${esc(f.sha256)}</td></tr>`).join("")}
+    ${v.inputs.map((f) => `<tr><th>${esc(f.label)}</th><td class="mono">${esc(f.name)} · ${esc(f.size || "")} ${f.seconds ? esc(f.seconds) + " s" : ""}${f.cast ? ` · ${esc(f.cast.role)}${f.cast.who ? ": " + esc(f.cast.who) : ""}` : ""}<br>sha256 ${esc(f.sha256)}</td></tr>`).join("")}
   </table>`;
   if (version === undefined) $("s5").scrollIntoView({ behavior: "smooth" });
 }
@@ -558,7 +630,8 @@ async function loadHistory() {
 
 (async () => {
   const c = await api("/api/config");
-  S.how = c.how;
+  S.how = c.how; S.included = c.images_included; S.perImage = c.credits_per_extra_image;
+  $("h2").textContent = HINT2[S.mode];
   $("badge").className = "badge " + c.how;
   $("badge").textContent = c.how === "live" ? "LIVE · CLICKS COST CREDITS" : "FAKE · FREE";
   refresh(); loadHistory();

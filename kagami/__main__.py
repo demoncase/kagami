@@ -9,6 +9,13 @@
   python -m kagami comfy runs\\20261021-160000-copy                        the run as a ComfyUI workflow (free, local)
 
 An image can say what it is: --image "jacket.png::the jacket he wears" becomes "Image 2 is the jacket he wears."
+Or take a role in the cast map (copy):
+  --image "me.png::person:the man in the orange suit"    replaces him (just "::person" when there is one person)
+  --image "beach.png::place"                             the setting; camera, ground and positions kept
+  --image "ball.png::object:the red ball"                replaces that thing
+  --image "grade.png::look"                              style and light only, nothing replaced
+  --others keep|restyle    everyone else in the clip, when a person is mapped (default keep)
+  --change "text"          the change in your words; @image1 / @video1 name your images and the clip
 """
 
 from __future__ import annotations
@@ -30,9 +37,13 @@ def approx() -> str:
         return "~"
 
 
-def image_arg(text: str) -> tuple[Path, str]:
-    path, _, what = text.partition("::")
-    return Path(path), what.strip()
+def image_arg(text: str) -> engine.Ref:
+    """path, path::what it is, or path::role[:who] with role person, place, object or look."""
+    path, _, rest = text.partition("::")
+    role, _, who = rest.partition(":")
+    if role.strip().lower() in engine.ROLES:
+        return engine.Ref(Path(path), role=role.strip().lower(), who=who.strip())
+    return engine.Ref(Path(path), rest.strip())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,6 +56,9 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--target", default="", help="swap: what in the clip is replaced")
         p.add_argument("--prompt", default="", help="replace Kagami's prompt entirely")
         p.add_argument("--extra", default="", help="a sentence added after Kagami's prompt")
+        p.add_argument("--change", default="", help="the change in your words (@image1, @video1)")
+        p.add_argument("--others", choices=["keep", "restyle"], default="keep",
+                       help="with a person mapped: everyone else in the clip kept as they are, or restyled to fit")
         p.add_argument("--resolution", default="768P", choices=["768P", "2K"])
         p.add_argument("--duration", type=int, help="output seconds, 4 to 15 (default: the clip's length)")
         p.add_argument("--ratio", choices=["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"])
@@ -67,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--image", action="append", default=[], type=image_arg)
     st.add_argument("--target", default="")
     st.add_argument("--extra", default="")
+    st.add_argument("--change", default="", help="the change in your words (@image1, @video1)")
+    st.add_argument("--others", choices=["keep", "restyle"], default="keep")
     st.add_argument("--at", type=float, default=0.0, help="the frame's time in seconds (default 0, the first frame)")
     st.add_argument("--model", choices=["nbp", "flux3", "both"], default="nbp")
     st.add_argument("--seed", type=int)
@@ -106,7 +122,8 @@ def main(argv: list[str] | None = None) -> int:
         models = ("nbp", "flux3") if a.model == "both" else (a.model,)
         how = "run" if a.run else "fake" if a.fake else "dry"
         try:
-            d, r = still.make(a.mode, a.video, a.image, target=a.target, extra=a.extra, at=a.at, models=models,
+            d, r = still.make(a.mode, a.video, a.image, target=a.target, extra=a.extra, change=a.change,
+                              others=a.others, at=a.at, models=models,
                               how=how, api_key=engine.read_key(a.key_file) if a.run else None, root=a.stills, seed=a.seed)
         except engine.Refused as exc:
             print(f"refused: {exc}\nNothing was sent.")
@@ -170,8 +187,8 @@ def main(argv: list[str] | None = None) -> int:
             d, rec = engine.replay(a.folder, key, wait_minutes=a.wait)
         else:
             i = engine.Inputs(mode=a.cmd, video=a.video, images=a.image, target=a.target, prompt=a.prompt,
-                              extra=a.extra, resolution=a.resolution, duration=a.duration, ratio=a.ratio, seed=a.seed, fit=a.fit,
-                              still=a.still)
+                              extra=a.extra, change=a.change, others=a.others, resolution=a.resolution,
+                              duration=a.duration, ratio=a.ratio, seed=a.seed, fit=a.fit, still=a.still)
             how = "run" if a.run else "fake" if a.fake else "dry"
             if how == "run":
                 print("  sent; H3 can take many minutes. Kagami keeps collecting under one key (Ctrl+C is safe: replay later).")
@@ -189,6 +206,8 @@ def main(argv: list[str] | None = None) -> int:
             extra = f" {f['seconds']} s {f['size']} {f['fps']} fps"
         else:
             extra = f" {f['size']}" + (f" ({f['what']})" if f.get("what") else "")
+            if f.get("cast"):
+                extra += f"  {f['cast']['role']}" + (f": {f['cast']['who']}" if f["cast"]["who"] else "")
             if f.get("send_copy"):
                 extra += f"  -> sent as a copy {f['send_copy']['size']} ({f['send_copy']['how']})"
         print(f"  {f['label']:8} {f['name']}  {f['bytes']:,} bytes  sha256 {f['sha256'][:12]}{extra}")

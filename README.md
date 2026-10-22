@@ -44,6 +44,17 @@ python -m kagami copy --video clip.mp4 --image me.png --run --key-file E:\keys\c
 python -m kagami swap --video clip.mp4 --image mug.png --target "the white mug on the desk" --run --key-file E:\keys\comfy-router.txt
 ```
 
+More than one person, a new place, an object, or your own words: give each image a role (Copy), and describe the change.
+
+```powershell
+python -m kagami copy --video clip.mp4 --image "me.png::person:the man in the orange suit" --image "you.png::person:the woman on the left" --image "beach.png::place" --others restyle --change "Make it dusk. @image1 waves at the camera."
+```
+
+- `::person:who` replaces that person in the clip (just `::person` when there is one), `::place` sets the shot there (camera, ground plane and where everyone stands are kept), `::object:what` replaces that thing, `::look` takes style and light only. `::any other words` still says what an image is, as before.
+- `--others keep|restyle`: with a person mapped, everyone else in the clip is kept as they are (default) or restyled to fit.
+- `--change "text"` goes in word for word; `@image1` (your first image) and `@video1` become the names the request uses, and a mention of something not attached is refused. Swap takes `--change` too.
+- The prompt is assembled in a fixed order, and the receipt keeps each part. With no roles set, Kagami writes the same prompt as before, to the byte. The preview still is written from the same map. In the app, each image card has the role picker.
+
 See it before you pay for video: recast one frame on Nano Banana Pro or FLUX 3 (cents, seconds), approve it, and the approved still goes to H3 as Image 1:
 
 ```powershell
