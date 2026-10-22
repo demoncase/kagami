@@ -54,6 +54,14 @@ python -m kagami copy --video clip.mp4 --image me.png --still stills\<folder> --
 
 Every made video also gets `output_source_audio.mp4` (the recast with the clip's own sound), `before_after_side.mp4` and `before_after_split.mp4` (`python -m kagami finish runs\<folder>` makes them for older runs).
 
+Every run can also be opened in ComfyUI: Kagami writes `comfyui_workflow.json` (drop it on the canvas), `comfyui_workflow_api.json` (the API format) and `comfyui.zip` (both, plus the exact files the run sent and a README), on ComfyUI's **MiniMax H3 Reference to Video** partner node, with the same files, prompt and settings. The files are named by hash, so copy them into ComfyUI's input folder first, or let Kagami do it:
+
+```powershell
+python -m kagami comfy runs\<folder> --comfy-input "<your ComfyUI>\input"
+```
+
+Kagami calls H3 through Comfy Router and the graph calls it through the partner node: same model, two doors. A run sent without a seed gets seed 42 in the graph, so ComfyUI's result will differ; the receipt says so. The graphs Kagami fills in are in `workflows/`.
+
 The first line is a dry run (the default): the request is built, checked against H3's limits and saved, nothing is sent. `--fake` runs the whole path offline. `--run` is the one paid call; Kagami never retries it. If an answer is lost, `python -m kagami replay runs\<folder> --key-file ...` resends the same request under the same Idempotency-Key and Router hands back the first result instead of billing again.
 
 Each run gets a folder under `runs\` with `receipt.json` and, when a video was made, `output.mp4` (the provider's file, byte for byte).

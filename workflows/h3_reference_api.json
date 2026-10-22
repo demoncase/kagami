@@ -1,0 +1,59 @@
+{
+  "1": {
+    "inputs": {
+      "image": "image_1.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "2": {
+    "inputs": {
+      "file": "video_1.mp4",
+      "video-preview": ""
+    },
+    "class_type": "LoadVideo",
+    "_meta": {
+      "title": "Load Video"
+    }
+  },
+  "14": {
+    "inputs": {
+      "filename_prefix": "video/ComfyUI",
+      "format": "auto",
+      "codec": "auto",
+      "video": [
+        "15",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "Save Video"
+    }
+  },
+  "15": {
+    "inputs": {
+      "model": "MiniMax H3",
+      "model.prompt": "",
+      "model.resolution": "768P",
+      "model.ratio": "adaptive",
+      "model.duration": 5,
+      "seed": 42,
+      "watermark": false,
+      "model.reference_images.image_1": [
+        "1",
+        0
+      ],
+      "model.reference_videos.video_1": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "MinimaxHailuo03ReferenceNode",
+    "_meta": {
+      "title": "MiniMax H3 Reference to Video"
+    }
+  }
+}

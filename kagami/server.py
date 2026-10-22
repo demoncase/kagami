@@ -22,7 +22,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from . import edit, engine, finish, media, still
+from . import edit, engine, finish, media, still, workflow
 
 ROOT = Path.cwd()
 WORK, RUNS, STILLS = ROOT / "work", ROOT / "runs", ROOT / "stills"
@@ -213,6 +213,10 @@ def create_app() -> FastAPI:
             if r.get("output"):
                 print("made. syncing to the source's beat and building the before/after...")
                 finish.finish(d)
+            try:
+                workflow.export(d)
+            except Exception as exc:  # noqa: BLE001 - the video is kept either way
+                print(f"ComfyUI workflow not exported: {exc}")
             return _run_view(d)
 
         return {"job": _job("video", go)}
@@ -288,6 +292,8 @@ def _run_view(d: Path, full: bool = False) -> dict:
     files = {k: rel(v["path"]) for k, v in fz.items() if isinstance(v, dict) and v.get("path")}
     if r.get("output"):
         files["raw"] = rel(r["output"]["path"])
+    if (r.get("comfyui") or {}).get("zip"):
+        files["comfyui"] = rel(r["comfyui"]["zip"]["path"])
     view = {"folder": d.name, "path": rel(d), "mode": r.get("mode"), "how": r.get("how"), "made_at": r.get("made_at"),
             "outcome": r.get("outcome"), "credits": r.get("credits_used"), "usd": r.get("usd_reported"),
             "price_note": r.get("price_note"), "prompt": r.get("prompt"),

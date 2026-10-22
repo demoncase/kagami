@@ -497,7 +497,8 @@ function showRun(v, version) {
       : `H3's version: ${esc(w.reads_as.replace(/^the recast /, ""))}. <b>Put back on the beat.</b> <span class="mono">(${esc(w.method)}, match ${w.correlation})</span>`) :
     (v.outcome === "made" ? "" : `<span class="problem">${esc(v.outcome)} ${esc(v.error || "")}</span>`);
   $("downloads").innerHTML = order.map((k) => `<a href="${file(files[k])}" download>${E.version ? E.version + "_" : ""}${k}.mp4</a>`).join("") +
-    `<a href="${file(v.path + "/receipt.json")}" download>receipt.json</a>`;
+    `<a href="${file(v.path + "/receipt.json")}" download>receipt.json</a>` +
+    (v.files.comfyui ? `<a href="${file(v.files.comfyui)}" download title="The run as a ComfyUI graph on the H3 partner node, with the files it loads">comfyui.zip</a>` : "");
   $("receiptBody").innerHTML = `<table>
     <tr><th>Made</th><td class="mono">${esc(v.made_at)} · ${esc(v.how)} · ${esc(v.mode)}</td></tr>
     <tr><th>Cost</th><td class="mono">${esc(v.how === "fake" ? "simulated, nothing charged" : money(v.credits, v.usd))}${v.price_note ? `<br><span class="hint">${esc(v.price_note)}</span>` : ""}</td></tr>

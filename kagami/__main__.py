@@ -6,6 +6,7 @@
   python -m kagami swap --video clip.mp4 --image mug.png --target "the white mug on the desk"
   python -m kagami replay runs\\20261021-160000-copy --key-file ...       collect a run whose answer was lost (not billed twice)
   python -m kagami finish runs\\20261021-160000-copy                       the source's sound + before/after files (free, local)
+  python -m kagami comfy runs\\20261021-160000-copy                        the run as a ComfyUI workflow (free, local)
 
 An image can say what it is: --image "jacket.png::the jacket he wears" becomes "Image 2 is the jacket he wears."
 """
@@ -17,7 +18,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import engine, finish, still
+from . import engine, finish, still, workflow
 
 
 def image_arg(text: str) -> tuple[Path, str]:
@@ -76,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     fz = sub.add_parser("finish", help="the source's sound and the before/after files for a made run (free)")
     fz.add_argument("folder", type=Path)
     fz.add_argument("--no-sync", action="store_true", help="leave the recast's timing as H3 made it")
+    cf = sub.add_parser("comfy", help="the run as a ComfyUI workflow on the H3 partner node (free, local)")
+    cf.add_argument("folder", type=Path)
+    cf.add_argument("--comfy-input", type=Path, help="ComfyUI's input folder: copy the run's files straight there")
     a = ap.parse_args(argv)
 
     if a.cmd == "serve":
@@ -123,6 +127,14 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print_finishes(done)
         return 0
+    if a.cmd == "comfy":
+        try:
+            done = workflow.export(a.folder, a.comfy_input)
+        except (ValueError, OSError) as exc:
+            print(f"could not export: {exc}")
+            return 1
+        print_comfy(done)
+        return 0
 
     try:
         if a.cmd == "replay":
@@ -165,8 +177,20 @@ def main(argv: list[str] | None = None) -> int:
             print_finishes(finish.finish(d))
         except Exception as exc:  # noqa: BLE001 - the video is kept either way
             print(f"  finishing failed ({exc}); the video is kept. Try: python -m kagami finish {d}")
+    if rec.get("prompt"):
+        try:
+            print_comfy(workflow.export(d))
+        except Exception as exc:  # noqa: BLE001 - the run is kept either way
+            print(f"  comfyui   not exported ({exc}). Try: python -m kagami comfy {d}")
     print(f"  receipt   {d / 'receipt.json'}")
     return 0
+
+
+def print_comfy(done: dict) -> None:
+    print(f"  comfyui   {done['workflow']['path']}")
+    print(f"            {done['zip']['path']} (graph + the files it loads; drop input/ into ComfyUI's input folder)")
+    if done.get("copied_to"):
+        print(f"            copied to {done['copied_to']['folder']}: {', '.join(done['copied_to']['files']) or 'already there'}")
 
 
 def print_finishes(done: dict) -> None:
