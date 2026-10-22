@@ -37,8 +37,13 @@ from . import media, prices
 MODEL = "minimax/minimax-h3"
 VERSION = "0.1.0"
 BODY_LIMIT = 100 * 1024 * 1024  # Router's cap on the raw request body
-ATTEMPT_SECONDS = 1500  # one wait: H3 takes 11-12 min, and only a FIRST answer carries the price (a replay does not)
-COLLECT_PAUSE = 15     # seconds between collects
+# The first request has never brought the answer back: in every real run it waited out its timeout,
+# and the next collect under the same key returned the finished video at once. So the first wait is
+# short, and Kagami then checks about once a minute and a half: a run ends soon after H3 does.
+FIRST_WAIT = 120       # seconds the first request waits
+CHECK_WAIT = 60        # seconds each collect waits
+CHECK_EVERY = 90       # a collect starts at most this often (each one re-sends the request body)
+COLLECT_PAUSE = 15     # the least pause between two requests
 WAIT_MINUTES = 45      # how long one Kagami call keeps collecting before it stops and says so
 
 
@@ -413,11 +418,14 @@ def run(i: Inputs, how: str, root: Path, api_key: str | None = None, key: str | 
     t0 = time.monotonic()
     give_up = t0 + wait_minutes * 60
     r.setdefault("attempts", [])
+    r["waits"] = {"first_wait": FIRST_WAIT, "check_wait": CHECK_WAIT, "check_every": CHECK_EVERY,
+                  "give_up_minutes": wait_minutes}
     attempt = 0
     while True:
         attempt += 1
+        started = time.monotonic()
         try:
-            res, headers = send(client, MODEL, b.body, key, ATTEMPT_SECONDS)
+            res, headers = send(client, MODEL, b.body, key, FIRST_WAIT if attempt == 1 else CHECK_WAIT)
             break
         except Exception as exc:  # noqa: BLE001 - every failure is recorded
             err = {"type": type(exc).__name__, "message": str(exc)[:2000],
@@ -426,14 +434,16 @@ def run(i: Inputs, how: str, root: Path, api_key: str | None = None, key: str | 
                    "http_status": getattr(exc, "http_status", None),
                    "details": getattr(exc, "details", None),
                    "field_errors": [str(e) for e in getattr(exc, "errors", ())]}
-            r["attempts"].append({"at": _now(), "attempt": attempt, "error": err})
+            r["attempts"].append({"at": _now(), "attempt": attempt, "seconds": round(time.monotonic() - started, 1),
+                                  "error": err})
             if collectable(exc) and time.monotonic() < give_up:
                 # Still generating. The same body under the same key COLLECTS that generation
                 # (Router's contract), it never starts a second one, so this is not a retry.
+                pause = max(COLLECT_PAUSE, CHECK_EVERY - (time.monotonic() - started))
                 waited = round((time.monotonic() - t0) / 60, 1)
-                print(f"  ... still generating after {waited} min; collecting again under the same key (attempt {attempt + 1})")
+                print(f"  ... still generating after {waited} min; checking again in {pause:.0f} s under the same key (check {attempt + 1})")
                 save(d, r)
-                time.sleep(COLLECT_PAUSE)
+                time.sleep(pause)
                 continue
             r.update(outcome="failed" if not collectable(exc) else "not collected yet (still generating?)",
                      seconds_waited=round(time.monotonic() - t0, 1), error=err,
