@@ -4,23 +4,37 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kagami</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23c2410c'/%3E%3Cpath d='M16 4a12 12 0 0 0 0 24z' fill='%23fff' opacity='.85'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230b8ce9'/%3E%3Cpath d='M16 4a12 12 0 0 0 0 24z' fill='%23fff' opacity='.85'/%3E%3C/svg%3E">
 <style>
+/* Colours from ComfyUI's frontend (comfyui-frontend-package 1.49.6): palette "Dark (Default)", comfy_base,
+   plus its .dark-theme tokens for the primary button, success and warning. Every colour lives here. */
 :root {
-  --bg: #f6f5f2; --panel: #ffffff; --ink: #18181b; --muted: #6b6b73; --line: #e4e2dc;
-  --accent: #c2410c; --accent-ink: #ffffff; --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
-  --soft: #f0eee9; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(0,0,0,.05);
+  color-scheme: dark;
+  --bg: #202020;            /* bg-color */
+  --panel: #171718;         /* comfy-menu-bg */
+  --soft: #303030;          /* comfy-menu-secondary-bg */
+  --field: #222;            /* comfy-input-bg */
+  --field-ink: #ddd;        /* input-text */
+  --ink: #fff;              /* fg-color */
+  --muted: #999;            /* descrip-text */
+  --line: #4e4e4e;          /* border-color */
+  --bad: #ff4444;           /* error-text */
+  --accent: #0b8ce9;        /* primary-background (azure-600) */
+  --accent-hover: #31b9f4;  /* primary-background-hover (azure-400) */
+  --accent-ink: #fff;
+  --ok: #00cd72;            /* success-background (jade-600) */
+  --warn: #fd9903;          /* warning-background (gold-600) */
+  --media: #000;
+  --scrim: rgba(0, 0, 0, .6);
+  --shadow: rgba(16, 16, 16, .5) 0 0 .5rem;  /* bar-shadow */
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
   --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #0e0e10; --panel: #17171a; --ink: #ececef; --muted: #9a9aa3; --line: #2a2a2f;
-          --accent: #f97316; --accent-ink: #160a03; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
-          --soft: #1f1f23; --shadow: none; }
-}
+/* One alignment rule: every text and block starts at its card's left content edge. Centring is only for a
+   label inside its own control (button, chip, step number, drop target) and for media letterboxed in its frame. */
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
-.wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 80px; }
+.wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 40px; }
 header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
 .brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; }
 .brand h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
@@ -28,19 +42,20 @@ header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-
 .brand p { margin: 0; color: var(--muted); font-size: 14px; }
 .badge { font: 600 12px/1 var(--mono); padding: 7px 10px; border-radius: 999px; letter-spacing: .04em; }
 .badge.fake { background: var(--soft); color: var(--muted); border: 1px solid var(--line); }
-.badge.live { background: var(--bad); color: #fff; }
+.badge.live { background: var(--bad); color: var(--ink); }
 .seg { display: inline-flex; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
 .seg button { border: 0; background: transparent; color: var(--muted); font: 600 14px var(--sans); padding: 7px 16px; border-radius: 7px; cursor: pointer; }
 .seg button.on { background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
-.step { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.step { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin-bottom: 14px; }
 .step h2 { margin: 0 0 4px; font-size: 16px; display: flex; gap: 10px; align-items: center; }
 .step h2 .n { font: 600 12px/22px var(--mono); width: 22px; height: 22px; text-align: center; border-radius: 50%; background: var(--soft); color: var(--muted); }
-.step.done h2 .n { background: var(--ok); color: #fff; }
-.step .hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; }
+.step.done h2 .n { background: var(--ok); color: var(--panel); }
+.hint { color: var(--muted); font-size: 13.5px; }
+.step > .hint { margin: 0 0 14px; }
 .drop { border: 1.5px dashed var(--line); border-radius: 12px; padding: 22px; text-align: center; color: var(--muted); cursor: pointer; transition: border-color .15s, background .15s; }
 .drop:hover, .drop.over { border-color: var(--accent); background: var(--soft); }
 .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
-.clip video { width: 220px; max-height: 390px; border-radius: 10px; background: #000; }
+.clip video { width: 220px; max-height: 390px; border-radius: 10px; background: var(--media); }
 .facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
 .chip { font: 12px/1 var(--mono); padding: 6px 8px; border-radius: 6px; background: var(--soft); color: var(--muted); }
 .problem { color: var(--bad); font-size: 13.5px; }
@@ -49,35 +64,40 @@ header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-
 .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); position: relative; }
 .card img { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; background: var(--soft); }
 .card .body { padding: 8px 10px; }
-.card .lab { font: 600 12px var(--mono); color: var(--accent); }
+.card .lab { font: 600 12px var(--mono); color: var(--ink); }
 .card input { width: 100%; margin-top: 4px; }
-.card .x { position: absolute; top: 6px; right: 6px; border: 0; width: 24px; height: 24px; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; cursor: pointer; }
+.card .x { position: absolute; top: 6px; right: 6px; border: 0; width: 24px; height: 24px; border-radius: 50%; background: var(--scrim); color: var(--ink); cursor: pointer; }
 .card.picked { outline: 3px solid var(--ok); outline-offset: -3px; }
-input[type=text], select { font: 14px var(--sans); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+input[type=text], select { font: 14px var(--sans); color: var(--field-ink); background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 input[type=text]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
 .target input { width: 100%; }
 button.go { font: 600 15px var(--sans); background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 11px 18px; cursor: pointer; }
+button.go:hover:not(:disabled) { background: var(--accent-hover); }
 button.go:disabled { opacity: .4; cursor: not-allowed; }
 button.ghost { font: 600 13px var(--sans); background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+button.ghost:hover { background: var(--soft); }
 .checks { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 6px 0 12px; }
 .checks label { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
 .status { font-size: 13.5px; color: var(--muted); margin-top: 10px; min-height: 20px; }
 .status.err { color: var(--bad); }
-.log { font: 12px/1.5 var(--mono); color: var(--muted); background: var(--soft); border-radius: 8px; padding: 8px 10px; margin-top: 8px; max-height: 140px; overflow: auto; white-space: pre-wrap; }
+.log { font: 12px/1.5 var(--mono); color: var(--muted); background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-top: 8px; max-height: 140px; overflow: auto; white-space: pre-wrap; }
 .log:empty { display: none; }
 .sends { font-size: 13.5px; margin: 0 0 12px; padding-left: 18px; color: var(--muted); }
 .sends b { color: var(--ink); font-weight: 600; }
-.player { display: grid; gap: 10px; justify-items: center; }
-.player video { width: 100%; max-width: 520px; max-height: 70vh; border-radius: 12px; background: #000; }
-.tabs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
-.sync { font-size: 13.5px; text-align: center; color: var(--muted); }
+.player { display: grid; gap: 10px; justify-items: start; }
+.player video { width: 100%; max-width: 520px; max-height: 70vh; border-radius: 12px; background: var(--media); }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.sync { font-size: 13.5px; color: var(--muted); }
 .sync b { color: var(--ok); }
-.downloads { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.downloads { display: flex; gap: 8px; flex-wrap: wrap; }
 .downloads a { font: 12px var(--mono); color: var(--ink); text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; }
+.downloads a:hover { border-color: var(--accent); }
 details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
 summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
 td, th { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
 td.mono, .mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
 .history { display: grid; gap: 8px; }
 .hist { display: flex; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; cursor: pointer; background: var(--panel); }
@@ -87,17 +107,18 @@ td.mono, .mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywh
 .pill.made { color: var(--ok); }
 .pill.failed { color: var(--bad); }
 .picker { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 18px; align-items: start; }
-.viewer { background: #000; border-radius: 12px; overflow: hidden; }
-.viewer img { width: 100%; height: 420px; object-fit: contain; display: block; background: #000; }
+.viewer { background: var(--media); border-radius: 12px; overflow: hidden; }
+.viewer img { width: 100%; height: 420px; object-fit: contain; display: block; background: var(--media); }
+.viewer img:not([src]) { visibility: hidden; }
 .pickbar { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .pickbar b { font: 600 15px var(--mono); min-width: 74px; text-align: center; }
 .side { display: grid; gap: 10px; align-content: start; }
 .side label { display: flex; gap: 8px; align-items: center; font-size: 14px; }
 @media (max-width: 700px) { .picker { grid-template-columns: 1fr; } .viewer img { height: 320px; } }
-.strip { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px 8px; }
+.strip { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 8px; }
 .strip button { flex: 0 0 auto; border: 2px solid transparent; border-radius: 8px; padding: 0; background: none; cursor: pointer; position: relative; }
 .strip img { height: 96px; display: block; border-radius: 6px; }
-.strip span { position: absolute; left: 4px; bottom: 4px; font: 11px var(--mono); color: #fff; background: rgba(0,0,0,.6); padding: 1px 4px; border-radius: 4px; }
+.strip button span { position: absolute; left: 4px; bottom: 4px; font: 11px var(--mono); color: var(--ink); background: var(--scrim); padding: 1px 4px; border-radius: 4px; }
 .strip button.on { border-color: var(--accent); }
 .scrub { width: 100%; accent-color: var(--accent); }
 .editor { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; display: grid; gap: 12px; }
@@ -112,8 +133,10 @@ td.mono, .mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywh
 .trim input[type=range]::-webkit-slider-runnable-track { background: none; }
 .erow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .erow b.mono { font-size: 14px; }
+.erow .status { margin-top: 0; min-height: 0; }
 .versions { display: flex; gap: 6px; flex-wrap: wrap; }
-.versions button.on, .tabs button.on { border-color: var(--accent); color: var(--accent); }
+.versions button.on, .tabs button.on { border-color: var(--accent); color: var(--accent-hover); }
+footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line); margin-top: 24px; padding-top: 14px; }
 .hidden { display: none !important; }
 @media (max-width: 600px) { .clip video { width: 100%; } }
 </style>
@@ -221,6 +244,8 @@ td.mono, .mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywh
     <h2><span class="n">·</span>Earlier runs</h2>
     <div class="history" id="history"><span class="hint">None yet.</span></div>
   </section>
+
+  <footer>Built on Comfy Router and MiniMax H3. Not an official Comfy product.</footer>
 </div>
 
 <script>
