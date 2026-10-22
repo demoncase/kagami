@@ -18,6 +18,7 @@ Three ways to run, and the receipt always says which:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import os
@@ -34,9 +35,38 @@ from . import media
 MODEL = "minimax/minimax-h3"
 VERSION = "0.1.0"
 BODY_LIMIT = 100 * 1024 * 1024  # Router's cap on the raw request body
-ATTEMPT_SECONDS = 660  # one wait: a little over Router's own 10 min deadline
+ATTEMPT_SECONDS = 1500  # one wait: H3 takes 11-12 min, and only a FIRST answer carries the price (a replay does not)
 COLLECT_PAUSE = 15     # seconds between collects
 WAIT_MINUTES = 45      # how long one Kagami call keeps collecting before it stops and says so
+
+
+def send(client, model: str, body: dict, key: str, timeout: float):
+    """One Router run. Returns the SDK's run result plus the price headers Router sent.
+
+    The SDK's run_detailed keeps X-Comfy-Credits-Used but drops the USD price Router also sends
+    (X-Litellm-Response-Cost), so the headers are read here. Both are absent on a replay and for
+    models Router does not price per run: absent means "not reported", never free.
+    """
+    run = getattr(client.models, "_run", None)
+    if run is None:  # an SDK without the private call: credits only
+        res = client.models.run_detailed(model, body, idempotency_key=key, timeout=timeout)
+        return res, {}
+    from comfy_sdk.models import _run_result
+
+    out, headers = run(model, body, idempotency_key=key, timeout=timeout)
+    keep = {k: headers.get(k) for k in ("X-Comfy-Credits-Used", "X-Litellm-Response-Cost", "Idempotent-Replayed",
+                                         "X-Comfy-Request-Id") if headers.get(k) is not None}
+    return _run_result(out, headers), keep
+
+
+def price(res, headers: dict) -> dict:
+    """What the receipt says about cost: Router's numbers as sent, or why there are none."""
+    usd = headers.get("X-Litellm-Response-Cost")
+    note = ("a replay of an earlier answer: charged once, and Router does not repeat the price"
+            if res.replayed else "Router sent no price for this model")
+    return {"credits_used": res.credits_used if res.credits_used is not None else "not reported",
+            "usd_reported": usd if usd is not None else "not reported",
+            "price_note": None if (res.credits_used is not None or usd is not None) else note}
 
 
 def collectable(exc: BaseException) -> bool:
@@ -64,6 +94,14 @@ SWAP_PROMPT = (
 )
 
 
+SWAP_PROMPT_STILL = (
+    "Keep Video 1 exactly as it is: the same people, place, camera movement, framing, timing "
+    "and light, frame for frame. Change one thing only: {target} becomes the one in Image 2, "
+    "matching Image 2 exactly in shape, colour, material and markings. Everything else stays "
+    "as it is in Video 1."
+)
+
+
 class Refused(Exception):
     """The run cannot go: said before anything is sent."""
 
@@ -82,6 +120,7 @@ class Inputs:
     seed: int | None = None
     fit: bool = False  # make send copies of images outside H3's limits instead of refusing
     copies: Path = Path("runs") / "_send_copies"
+    still: Path | None = None  # a stills folder with an approved still: it travels as Image 1
 
 
 @dataclass
@@ -92,6 +131,7 @@ class Built:
     facts: media.VideoFacts
     files: list[dict] = field(default_factory=list)
     body_bytes: int = 0
+    still: dict | None = None
 
 
 def write_prompt(i: Inputs) -> str:
@@ -102,7 +142,7 @@ def write_prompt(i: Inputs) -> str:
     else:
         if not i.target:
             raise Refused("swap needs --target: what in the clip is replaced (e.g. 'the red mug on the table')")
-        text = SWAP_PROMPT.format(target=i.target)
+        text = (SWAP_PROMPT_STILL if getattr(i, "_with_still", False) else SWAP_PROMPT).format(target=i.target)
     lines = [f"Image {n} is {what}." for n, (_, what) in enumerate(i.images, 1) if what]
     if lines:
         text += " " + " ".join(lines)
@@ -112,6 +152,17 @@ def write_prompt(i: Inputs) -> str:
 
 
 def build(i: Inputs) -> Built:
+    still_meta = None
+    if i.still is not None:
+        from . import still as stills
+
+        f, still_meta = stills.approved(i.still)
+        more = " The other images show the same person, for reference." if i.mode == "copy" and i.images else ""
+        i = dataclasses.replace(i, images=[(f, "")] + list(i.images), still=None,
+                                extra=(stills.h3_still(still_meta["frame_at"]) + more + " " + i.extra).strip())
+        i._with_still = True  # type: ignore[attr-defined]
+    if len(i.images) > MAX_IMAGES:
+        raise Refused(f"H3 takes at most {MAX_IMAGES} images; {len(i.images)} with the still")
     if i.mode not in ("copy", "swap"):
         raise Refused(f"unknown mode {i.mode!r}")
     if not i.video.is_file():
@@ -177,7 +228,9 @@ def build(i: Inputs) -> Built:
     size = len(json.dumps(body).encode("utf-8"))
     if size > BODY_LIMIT:
         raise Refused(f"the request is {size / 2**20:.1f} MiB; Router's cap is 100 MiB (base64 counts). Use a shorter or smaller clip.")
-    return Built(body=body, redacted=redacted, prompt=prompt, facts=facts, files=files, body_bytes=size)
+    if still_meta:
+        files[1]["approved_still"] = still_meta
+    return Built(body=body, redacted=redacted, prompt=prompt, facts=facts, files=files, body_bytes=size, still=still_meta)
 
 
 def _now() -> str:
@@ -201,10 +254,11 @@ def receipt_base(i: Inputs, b: Built, how: str, key: str) -> dict:
         "tool": f"kagami {VERSION}", "how": how, "mode": i.mode, "model": MODEL, "made_at": _now(),
         "machine": platform.platform(), "inputs": b.files, "prompt": b.prompt,
         "settings": {k: b.body[k] for k in ("duration", "ratio", "resolution", "seed") if k in b.body},
-        "request": b.redacted, "request_bytes": b.body_bytes, "idempotency_key": key,
+        "request": b.redacted, "request_bytes": b.body_bytes, "idempotency_key": key, "still": b.still,
         "args": {"mode": i.mode, "video": str(i.video), "images": [[str(p), w] for p, w in i.images],
                  "target": i.target, "prompt": i.prompt, "extra": i.extra, "resolution": i.resolution,
-                 "duration": i.duration, "ratio": i.ratio, "seed": i.seed, "fit": i.fit},
+                 "duration": i.duration, "ratio": i.ratio, "seed": i.seed, "fit": i.fit,
+                 "still": str(i.still) if i.still else None},
     }
 
 
@@ -252,7 +306,7 @@ def run(i: Inputs, how: str, root: Path, api_key: str | None = None, key: str | 
     while True:
         attempt += 1
         try:
-            res = client.models.run_detailed(MODEL, b.body, idempotency_key=key, timeout=ATTEMPT_SECONDS)
+            res, headers = send(client, MODEL, b.body, key, ATTEMPT_SECONDS)
             break
         except Exception as exc:  # noqa: BLE001 - every failure is recorded
             err = {"type": type(exc).__name__, "message": str(exc)[:2000],
@@ -279,7 +333,7 @@ def run(i: Inputs, how: str, root: Path, api_key: str | None = None, key: str | 
             save(d, r)
             raise
     r.update(seconds_waited=round(time.monotonic() - t0, 1), request_id=res.request_id,
-             replayed=res.replayed, credits_used=res.credits_used if res.credits_used is not None else "not reported")
+             replayed=res.replayed, **price(res, headers), router_headers=headers)
     task = (res.output or {}).get("task", {}) if isinstance(res.output, dict) else {}
     r["task"] = {k: task.get(k) for k in ("id", "status", "duration", "ratio", "resolution", "model", "task_type", "usage", "error")}
     url = (task.get("content") or {}).get("url")
@@ -311,7 +365,7 @@ def replay(run_folder: Path, api_key: str, wait_minutes: float = WAIT_MINUTES) -
     i = Inputs(mode=a["mode"], video=Path(a["video"]), images=[(Path(p), w) for p, w in a["images"]],
                target=a["target"], prompt=a["prompt"], extra=a["extra"], resolution=a["resolution"],
                duration=a["duration"], ratio=a["ratio"], seed=a["seed"], fit=a.get("fit", False),
-               copies=run_folder.parent / "_send_copies")
+               copies=run_folder.parent / "_send_copies", still=Path(a["still"]) if a.get("still") else None)
     b = build(i)
     for now, then in zip(b.files, old["inputs"]):
         if now["sha256"] != then["sha256"]:

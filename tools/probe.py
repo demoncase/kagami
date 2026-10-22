@@ -71,6 +71,7 @@ def enums_for(doc, field):
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--key-file", help="text file holding the comfyui-... key (outside any repo)")
+    ap.add_argument("--models", nargs="*", default=[], help="more model ids to read the schema of (e.g. vertexai/gemini-3-pro-image)")
     args = ap.parse_args()
     key = read_key(args.key_file)
     OUT.mkdir(exist_ok=True)
@@ -86,7 +87,7 @@ def main() -> None:
     (OUT / "catalog.json").write_text(json.dumps(sorted(ids), indent=2), encoding="utf-8")
     h3ish = [i for i in ids if any(t in i.lower() for t in ("h3", "minimax", "hailuo"))]
     print(f"{len(ids)} models in the catalog; H3 / MiniMax ones: {h3ish or 'none found'}")
-    models = list(dict.fromkeys(CANDIDATES + h3ish))
+    models = list(dict.fromkeys(CANDIDATES + h3ish + args.models))
 
     print("\n== 2 + 3. schemas ==")
     for model in models:
@@ -100,7 +101,9 @@ def main() -> None:
         print(f"\n{model}  (saved {path})")
         print("  input kinds:", find_all(doc, "x-comfy-router-input-modalities") or "not stated")
         for field in ("role", "type", "duration", "resolution", "ratio", "aspect_ratio",
-                      "reference_video_urls", "reference_image_urls", "video_url", "image_url"):
+                      "reference_video_urls", "reference_image_urls", "video_url", "image_url",
+                      "image_urls", "input_image", "images", "image", "output_format", "num_images",
+                      "image_size", "width", "height", "safety_tolerance", "image_config"):
             for e in enums_for(doc, field):
                 print(f"  {field}: {e}")
 

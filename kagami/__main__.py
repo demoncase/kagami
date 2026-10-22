@@ -5,6 +5,7 @@
   python -m kagami copy --video clip.mp4 --image me.png --run --key-file E:\\keys\\comfy-router.txt   THE PAID CALL
   python -m kagami swap --video clip.mp4 --image mug.png --target "the white mug on the desk"
   python -m kagami replay runs\\20261021-160000-copy --key-file ...       collect a run whose answer was lost (not billed twice)
+  python -m kagami finish runs\\20261021-160000-copy                       the source's sound + before/after files (free, local)
 
 An image can say what it is: --image "jacket.png::the jacket he wears" becomes "Image 2 is the jacket he wears."
 """
@@ -16,7 +17,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import engine
+from . import engine, finish, still
 
 
 def image_arg(text: str) -> tuple[Path, str]:
@@ -38,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--duration", type=int, help="output seconds, 4 to 15 (default: the clip's length)")
         p.add_argument("--ratio", choices=["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"])
         p.add_argument("--seed", type=int)
+        p.add_argument("--still", type=Path, help="a stills folder whose approved still travels as Image 1")
         p.add_argument("--fit", action="store_true", help="send a padded, scaled copy of an image outside H3's limits (256-5760 px, 2:5 to 5:2)")
         how = p.add_mutually_exclusive_group()
         how.add_argument("--run", action="store_true", help="send it: the one paid call")
@@ -49,7 +51,78 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("folder", type=Path)
     r.add_argument("--key-file")
     r.add_argument("--wait", type=float, default=engine.WAIT_MINUTES, help="minutes to keep collecting (default 45)")
+    st = sub.add_parser("still", help="recast one frame on an image model before paying for video")
+    st.add_argument("mode", choices=["copy", "swap"])
+    st.add_argument("--video", required=True, type=Path)
+    st.add_argument("--image", action="append", default=[], type=image_arg)
+    st.add_argument("--target", default="")
+    st.add_argument("--extra", default="")
+    st.add_argument("--at", type=float, default=0.0, help="the frame's time in seconds (default 0, the first frame)")
+    st.add_argument("--model", choices=["nbp", "flux3", "both"], default="nbp")
+    st.add_argument("--seed", type=int)
+    sh = st.add_mutually_exclusive_group()
+    sh.add_argument("--run", action="store_true", help="send it: one paid image call per model")
+    sh.add_argument("--fake", action="store_true")
+    st.add_argument("--key-file")
+    st.add_argument("--stills", type=Path, default=Path("stills"))
+    ap_ = sub.add_parser("approve", help="pick the still that goes to H3 as Image 1")
+    ap_.add_argument("folder", type=Path)
+    ap_.add_argument("--pick", required=True, choices=["nbp", "flux3"])
+    sv = sub.add_parser("serve", help="the app: one page in your browser")
+    sv.add_argument("--live", action="store_true", help="real calls, real credits (default: FAKE, free)")
+    sv.add_argument("--key-file")
+    sv.add_argument("--port", type=int, default=8777)
+    sv.add_argument("--no-browser", action="store_true")
+    fz = sub.add_parser("finish", help="the source's sound and the before/after files for a made run (free)")
+    fz.add_argument("folder", type=Path)
+    fz.add_argument("--no-sync", action="store_true", help="leave the recast's timing as H3 made it")
     a = ap.parse_args(argv)
+
+    if a.cmd == "serve":
+        from . import server
+
+        key = engine.read_key(a.key_file)
+        if a.live and not key:
+            print("refused: --live needs a key: --key-file or COMFY_API_KEY")
+            return 2
+        server.serve("live" if a.live else "fake", key if a.live else None, a.port, open_browser=not a.no_browser)
+        return 0
+    if a.cmd == "still":
+        models = ("nbp", "flux3") if a.model == "both" else (a.model,)
+        how = "run" if a.run else "fake" if a.fake else "dry"
+        try:
+            d, r = still.make(a.mode, a.video, a.image, target=a.target, extra=a.extra, at=a.at, models=models,
+                              how=how, api_key=engine.read_key(a.key_file) if a.run else None, root=a.stills, seed=a.seed)
+        except engine.Refused as exc:
+            print(f"refused: {exc}\nNothing was sent.")
+            return 2
+        print(f"\nSTILL {how.upper()}  {a.mode}  ->  {d}")
+        print(f"  frame     {r['frame']['at']} s  {r['frame']['size']}")
+        print(f"  prompt    {r['prompt']}")
+        for m, res in r["results"].items():
+            out = res.get("output", {}).get("path", "")
+            print(f"  {m:9} {res['outcome']}  {out}  credits {res.get('credits_used', '-')}")
+            if res.get("error"):
+                print(f"            {res['error']['type']}: {res['error']['message'][:200]}")
+        print(f"  next      python -m kagami approve {d} --pick {models[0]}")
+        return 0
+    if a.cmd == "approve":
+        try:
+            ok = still.approve(a.folder, a.pick)
+        except engine.Refused as exc:
+            print(f"refused: {exc}")
+            return 2
+        print(f"approved {ok['pick']}: {ok['path']} (sha256 {ok['sha256'][:12]})")
+        print(f"next: python -m kagami copy|swap ... --still {a.folder}")
+        return 0
+    if a.cmd == "finish":
+        try:
+            done = finish.finish(a.folder, sync_it=not a.no_sync)
+        except Exception as exc:  # noqa: BLE001
+            print(f"could not finish: {exc}")
+            return 1
+        print_finishes(done)
+        return 0
 
     try:
         if a.cmd == "replay":
@@ -59,7 +132,8 @@ def main(argv: list[str] | None = None) -> int:
             d, rec = engine.replay(a.folder, key, wait_minutes=a.wait)
         else:
             i = engine.Inputs(mode=a.cmd, video=a.video, images=a.image, target=a.target, prompt=a.prompt,
-                              extra=a.extra, resolution=a.resolution, duration=a.duration, ratio=a.ratio, seed=a.seed, fit=a.fit)
+                              extra=a.extra, resolution=a.resolution, duration=a.duration, ratio=a.ratio, seed=a.seed, fit=a.fit,
+                              still=a.still)
             how = "run" if a.run else "fake" if a.fake else "dry"
             if how == "run":
                 print("  sent; H3 can take many minutes. Kagami keeps collecting under one key (Ctrl+C is safe: replay later).")
@@ -87,8 +161,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  credits   {rec['credits_used']}")
     if rec.get("output"):
         print(f"  output    {rec['output']['path']}")
+        try:
+            print_finishes(finish.finish(d))
+        except Exception as exc:  # noqa: BLE001 - the video is kept either way
+            print(f"  finishing failed ({exc}); the video is kept. Try: python -m kagami finish {d}")
     print(f"  receipt   {d / 'receipt.json'}")
     return 0
+
+
+def print_finishes(done: dict) -> None:
+    names = {"synced": "synced   ", "with_audio": "+ sound  ", "side": "side     ", "split": "split    "}
+    for k, v in done.items():
+        print(f"  {names.get(k, k)} {v.get('path') or v.get('skipped')}")
+        if k == "synced":
+            w = v["warp"]
+            print(f"            {w['reads_as']}; corrected ({w['method']}, match {w['correlation']})")
 
 
 if __name__ == "__main__":

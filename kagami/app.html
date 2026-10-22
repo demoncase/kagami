@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kagami</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23c2410c'/%3E%3Cpath d='M16 4a12 12 0 0 0 0 24z' fill='%23fff' opacity='.85'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #ffffff; --ink: #18181b; --muted: #6b6b73; --line: #e4e2dc;
+  --accent: #c2410c; --accent-ink: #ffffff; --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
+  --soft: #f0eee9; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(0,0,0,.05);
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0e0e10; --panel: #17171a; --ink: #ececef; --muted: #9a9aa3; --line: #2a2a2f;
+          --accent: #f97316; --accent-ink: #160a03; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
+          --soft: #1f1f23; --shadow: none; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
+.wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 80px; }
+header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; }
+.brand h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
+.brand .kanji { color: var(--accent); font-size: 22px; }
+.brand p { margin: 0; color: var(--muted); font-size: 14px; }
+.badge { font: 600 12px/1 var(--mono); padding: 7px 10px; border-radius: 999px; letter-spacing: .04em; }
+.badge.fake { background: var(--soft); color: var(--muted); border: 1px solid var(--line); }
+.badge.live { background: var(--bad); color: #fff; }
+.seg { display: inline-flex; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.seg button { border: 0; background: transparent; color: var(--muted); font: 600 14px var(--sans); padding: 7px 16px; border-radius: 7px; cursor: pointer; }
+.seg button.on { background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
+.step { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.step h2 { margin: 0 0 4px; font-size: 16px; display: flex; gap: 10px; align-items: center; }
+.step h2 .n { font: 600 12px/22px var(--mono); width: 22px; height: 22px; text-align: center; border-radius: 50%; background: var(--soft); color: var(--muted); }
+.step.done h2 .n { background: var(--ok); color: #fff; }
+.step .hint { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; }
+.drop { border: 1.5px dashed var(--line); border-radius: 12px; padding: 22px; text-align: center; color: var(--muted); cursor: pointer; transition: border-color .15s, background .15s; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--soft); }
+.row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+.clip video { width: 220px; max-height: 390px; border-radius: 10px; background: #000; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.chip { font: 12px/1 var(--mono); padding: 6px 8px; border-radius: 6px; background: var(--soft); color: var(--muted); }
+.problem { color: var(--bad); font-size: 13.5px; }
+.note { color: var(--warn); font-size: 13px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); position: relative; }
+.card img { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; background: var(--soft); }
+.card .body { padding: 8px 10px; }
+.card .lab { font: 600 12px var(--mono); color: var(--accent); }
+.card input { width: 100%; margin-top: 4px; }
+.card .x { position: absolute; top: 6px; right: 6px; border: 0; width: 24px; height: 24px; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; cursor: pointer; }
+.card.picked { outline: 3px solid var(--ok); outline-offset: -3px; }
+input[type=text], select { font: 14px var(--sans); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+input[type=text]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.target input { width: 100%; }
+button.go { font: 600 15px var(--sans); background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 11px 18px; cursor: pointer; }
+button.go:disabled { opacity: .4; cursor: not-allowed; }
+button.ghost { font: 600 13px var(--sans); background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+.checks { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 6px 0 12px; }
+.checks label { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
+.status { font-size: 13.5px; color: var(--muted); margin-top: 10px; min-height: 20px; }
+.status.err { color: var(--bad); }
+.log { font: 12px/1.5 var(--mono); color: var(--muted); background: var(--soft); border-radius: 8px; padding: 8px 10px; margin-top: 8px; max-height: 140px; overflow: auto; white-space: pre-wrap; }
+.log:empty { display: none; }
+.sends { font-size: 13.5px; margin: 0 0 12px; padding-left: 18px; color: var(--muted); }
+.sends b { color: var(--ink); font-weight: 600; }
+.player { display: grid; gap: 10px; justify-items: center; }
+.player video { width: 100%; max-width: 520px; max-height: 70vh; border-radius: 12px; background: #000; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.sync { font-size: 13.5px; text-align: center; color: var(--muted); }
+.sync b { color: var(--ok); }
+.downloads { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.downloads a { font: 12px var(--mono); color: var(--ink); text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; }
+details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+td, th { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.mono, .mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.history { display: grid; gap: 8px; }
+.hist { display: flex; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; cursor: pointer; background: var(--panel); }
+.hist:hover { border-color: var(--accent); }
+.hist .when { font: 12px var(--mono); color: var(--muted); margin-left: auto; }
+.pill { font: 600 11px var(--mono); padding: 3px 7px; border-radius: 5px; background: var(--soft); color: var(--muted); }
+.pill.made { color: var(--ok); }
+.pill.failed { color: var(--bad); }
+.picker { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 18px; align-items: start; }
+.viewer { background: #000; border-radius: 12px; overflow: hidden; }
+.viewer img { width: 100%; height: 420px; object-fit: contain; display: block; background: #000; }
+.pickbar { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.pickbar b { font: 600 15px var(--mono); min-width: 74px; text-align: center; }
+.side { display: grid; gap: 10px; align-content: start; }
+.side label { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+@media (max-width: 700px) { .picker { grid-template-columns: 1fr; } .viewer img { height: 320px; } }
+.strip { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px 8px; }
+.strip button { flex: 0 0 auto; border: 2px solid transparent; border-radius: 8px; padding: 0; background: none; cursor: pointer; position: relative; }
+.strip img { height: 96px; display: block; border-radius: 6px; }
+.strip span { position: absolute; left: 4px; bottom: 4px; font: 11px var(--mono); color: #fff; background: rgba(0,0,0,.6); padding: 1px 4px; border-radius: 4px; }
+.strip button.on { border-color: var(--accent); }
+.scrub { width: 100%; accent-color: var(--accent); }
+.editor { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; display: grid; gap: 12px; }
+.editor h3 { margin: 0; font-size: 15px; }
+.trim { position: relative; height: 34px; }
+.trim .band { position: absolute; top: 13px; height: 8px; border-radius: 4px; background: var(--accent); opacity: .35; }
+.trim .rail { position: absolute; left: 0; right: 0; top: 13px; height: 8px; border-radius: 4px; background: var(--soft); }
+.trim .head { position: absolute; top: 6px; width: 2px; height: 22px; background: var(--ink); }
+.trim input[type=range] { position: absolute; left: 0; right: 0; top: 6px; width: 100%; margin: 0; background: none; pointer-events: none; -webkit-appearance: none; appearance: none; height: 22px; }
+.trim input[type=range]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none; width: 14px; height: 22px; border-radius: 4px; background: var(--accent); cursor: ew-resize; }
+.trim input[type=range]::-moz-range-thumb { pointer-events: auto; width: 14px; height: 22px; border-radius: 4px; background: var(--accent); border: 0; cursor: ew-resize; }
+.trim input[type=range]::-webkit-slider-runnable-track { background: none; }
+.erow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.erow b.mono { font-size: 14px; }
+.versions { display: flex; gap: 6px; flex-wrap: wrap; }
+.versions button.on, .tabs button.on { border-color: var(--accent); color: var(--accent); }
+.hidden { display: none !important; }
+@media (max-width: 600px) { .clip video { width: 100%; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><h1>Kagami</h1><span class="kanji">鏡</span><p>Re-shoot any clip with your own cast.</p></div>
+    <div class="seg" id="modeSeg"><button data-mode="copy" class="on">Copy</button><button data-mode="swap">Swap</button></div>
+    <span class="badge fake" id="badge">FAKE · FREE</span>
+  </header>
+
+  <section class="step" id="s1">
+    <h2><span class="n">1</span>The clip</h2>
+    <p class="hint" id="h1">Its motion, timing and camera are kept. 2 to 15 seconds.</p>
+    <div class="drop" id="clipDrop">Drop a video here, or click to choose</div>
+    <input type="file" id="clipFile" accept="video/mp4,video/quicktime,video/webm" hidden>
+    <div class="row clip hidden" id="clipView">
+      <video id="clipVideo" controls muted loop playsinline></video>
+      <div><div class="facts" id="clipFacts"></div><div class="problem" id="clipProblem"></div>
+        <button class="ghost" id="clipChange">Change clip</button></div>
+    </div>
+  </section>
+
+  <section class="step" id="s2">
+    <h2><span class="n">2</span><span id="t2">Your cast</span></h2>
+    <p class="hint" id="h2">Image 1 is the person who takes over the clip. Add more angles or outfits if you have them (up to 9).</p>
+    <div class="grid" id="imgGrid"></div>
+    <div class="drop" id="imgDrop" style="margin-top:12px">Drop images here, or click to choose</div>
+    <input type="file" id="imgFile" accept="image/png,image/jpeg,image/webp" multiple hidden>
+    <div class="target hidden" id="targetBox" style="margin-top:14px">
+      <label for="target"><b>What gets replaced</b> <span class="hint">point at it in words</span></label>
+      <input type="text" id="target" placeholder="the white t-shirt she is wearing">
+    </div>
+  </section>
+
+  <section class="step" id="s3">
+    <h2><span class="n">3</span>Preview a frame first</h2>
+    <p class="hint">One frame recast on an image model: cents and seconds, instead of minutes and dollars of video. Pick a frame where your subject is clearly in view. The approved preview goes to the video as a reference for the look (Image 1); the video still starts where the clip starts. Optional.</p>
+    <div class="picker">
+      <div>
+        <div class="viewer"><img id="pickImg" alt="The frame that will be recast"></div>
+        <input type="range" class="scrub" id="scrub" min="0" max="1" step="0.01" value="0" aria-label="Frame time">
+        <div class="pickbar">
+          <button class="ghost" id="back" title="One frame back">&#8249; frame</button>
+          <b id="atLabel">0.00 s</b>
+          <button class="ghost" id="fwd" title="One frame forward">frame &#8250;</button>
+        </div>
+        <div class="strip" id="strip"><span class="hint">Add a clip in step 1 and its frames show up here.</span></div>
+      </div>
+      <div class="side">
+        <span class="hint">Recast this frame with</span>
+        <label><input type="checkbox" id="mNbp" checked> Nano Banana Pro</label>
+        <label><input type="checkbox" id="mFlux"> FLUX 3</label>
+        <button class="go" id="stillBtn" disabled>Make preview</button>
+        <span class="hint">Tip: pick a frame where your subject is big and clear.</span>
+      </div>
+    </div>
+    <div class="status" id="stillStatus"></div>
+    <div class="grid" id="stillGrid" style="margin-top:12px"></div>
+  </section>
+
+  <section class="step" id="s4">
+    <h2><span class="n">4</span>Make the video</h2>
+    <p class="hint">MiniMax H3 on Comfy Router. It can take many minutes; Kagami collects under one key, so waiting never pays twice.</p>
+    <ul class="sends" id="sends"></ul>
+    <div class="checks"><label>Resolution <select id="res"><option>768P</option><option>2K</option></select></label></div>
+    <button class="go" id="runBtn" disabled>Make video</button>
+    <div class="status" id="runStatus"></div>
+    <div class="log" id="runLog"></div>
+  </section>
+
+  <section class="step hidden" id="s5">
+    <h2><span class="n">5</span>Result</h2>
+    <div class="player">
+      <div class="tabs" id="tabs"></div>
+      <video id="outVideo" controls playsinline loop></video>
+      <div class="sync" id="syncLine"></div>
+      <div class="downloads" id="downloads"></div>
+    </div>
+    <div class="editor" id="editor">
+      <div class="erow"><h3>Trim and nudge</h3><span class="hint">Free and local. Every export (split, side, synced) gets the same edit; the H3 file is never touched.</span></div>
+      <div class="versions" id="versions"></div>
+      <div class="trim" id="trim"><div class="rail"></div><div class="band" id="band"></div><div class="head" id="head"></div>
+        <input type="range" id="tIn" min="0" max="1" step="0.01" value="0" aria-label="In point">
+        <input type="range" id="tOut" min="0" max="1" step="0.01" value="1" aria-label="Out point"></div>
+      <div class="erow">
+        <button class="ghost" id="setIn">Set in here</button>
+        <b class="mono" id="trimLabel">0.00 to 0.00 s</b>
+        <button class="ghost" id="setOut">Set out here</button>
+      </div>
+      <div class="erow">
+        <span>Beat</span>
+        <button class="ghost" id="nEarlier" title="The dance is behind the song: move it earlier">&#8249; earlier</button>
+        <b class="mono" id="nudgeLabel">0 frames</b>
+        <button class="ghost" id="nLater" title="The dance is ahead of the song: move it later">later &#8250;</button>
+        <span class="hint">use it if the dance looks ahead or behind the song after the auto-sync</span>
+      </div>
+      <div class="erow"><button class="go" id="editBtn">Render edit</button><div class="status" id="editStatus"></div></div>
+    </div>
+    <details id="receipt"><summary>Receipt: exactly what made this</summary><div id="receiptBody"></div></details>
+  </section>
+
+  <section class="step">
+    <h2><span class="n">·</span>Earlier runs</h2>
+    <div class="history" id="history"><span class="hint">None yet.</span></div>
+  </section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const S = { mode: "copy", clip: null, images: [], still: null, stillFolder: null, at: 0, how: "fake" };
+const TAB_NAMES = { split: "Split", side: "Side by side", synced: "Synced + sound", raw: "As H3 made it" };
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.statusText);
+  return body;
+}
+function money(credits, usd) {
+  const c = credits && credits !== "not reported" ? credits + " credits" : null;
+  const u = usd && usd !== "not reported" ? "$" + (+usd).toFixed(3) : null;
+  return [c, u].filter(Boolean).join(" · ") || "price not reported";
+}
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const file = (p) => "/files/" + p.split("/").map(encodeURIComponent).join("/");
+
+async function upload(f) {
+  return api("/api/upload?name=" + encodeURIComponent(f.name), { method: "POST", body: f });
+}
+
+function wireDrop(zone, input, onFiles) {
+  zone.onclick = () => input.click();
+  input.onchange = () => { onFiles([...input.files]); input.value = ""; };
+  zone.ondragover = (e) => { e.preventDefault(); zone.classList.add("over"); };
+  zone.ondragleave = () => zone.classList.remove("over");
+  zone.ondrop = (e) => { e.preventDefault(); zone.classList.remove("over"); onFiles([...e.dataTransfer.files]); };
+}
+
+// 1. the clip
+wireDrop($("clipDrop"), $("clipFile"), async (files) => {
+  if (!files[0]) return;
+  $("clipDrop").textContent = "Reading the clip...";
+  try {
+    S.clip = await upload(files[0]);
+    $("clipVideo").src = file(S.clip.path);
+    $("clipFacts").innerHTML = [S.clip.seconds + " s", S.clip.size, S.clip.fps + " fps", S.clip.ratio]
+      .map((t) => `<span class="chip">${esc(t)}</span>`).join("");
+    $("clipProblem").textContent = S.clip.problem || "";
+    $("clipView").classList.remove("hidden"); $("clipDrop").classList.add("hidden");
+    loadStrip();
+  } catch (e) { $("clipDrop").textContent = "Could not read it: " + e.message; }
+  refresh();
+});
+$("clipChange").onclick = () => { $("clipFile").click(); };
+function setAt(t, seek) {
+  S.at = Math.max(0, Math.min(t, (S.clip?.seconds || 1) - 0.05));
+  $("atLabel").textContent = S.at.toFixed(2) + " s";
+  $("scrub").value = S.at;
+  if (seek && S.clip) {
+    clearTimeout(S.frameTimer);
+    S.frameTimer = setTimeout(() => { $("pickImg").src = `/api/frame?video=${encodeURIComponent(S.clip.path)}&at=${S.at.toFixed(3)}`; }, 90);
+  }
+  let best = null;
+  $("strip").querySelectorAll("button").forEach((b) => {
+    const d = Math.abs(+b.dataset.at - S.at);
+    if (!best || d < best.d) best = { b, d };
+    b.classList.remove("on");
+  });
+  if (best && best.d < 0.4) best.b.classList.add("on");
+}
+$("back").onclick = () => setAt(S.at - 1 / (S.clip?.fps || 24), true);
+$("fwd").onclick = () => setAt(S.at + 1 / (S.clip?.fps || 24), true);
+$("scrub").oninput = () => setAt(+$("scrub").value, true);
+async function loadStrip() {
+  $("strip").innerHTML = '<span class="hint">Reading frames...</span>';
+  try {
+    const r = await api("/api/frames?n=10&video=" + encodeURIComponent(S.clip.path));
+    $("strip").innerHTML = r.frames.map((f) => `<button data-at="${f.at}" title="${f.at.toFixed(2)} s"><img src="${file(f.file)}" alt=""><span>${f.at.toFixed(1)}s</span></button>`).join("");
+    $("strip").querySelectorAll("button").forEach((b) => b.onclick = () => setAt(+b.dataset.at, true));
+    $("scrub").max = Math.max(0, r.seconds - 0.05).toFixed(2);
+    $("scrub").step = (1 / (S.clip.fps || 24)).toFixed(4);
+    setAt(0, true);
+  } catch (e) { $("strip").innerHTML = `<span class="problem">${esc(e.message)}</span>`; }
+}
+
+// 2. the images
+wireDrop($("imgDrop"), $("imgFile"), async (files) => {
+  for (const f of files) {
+    if (S.images.length >= 9) break;
+    try { S.images.push({ ...(await upload(f)), what: "" }); } catch (e) { alert(f.name + ": " + e.message); }
+  }
+  drawImages(); refresh();
+});
+function drawImages() {
+  $("imgGrid").innerHTML = S.images.map((im, i) => `
+    <div class="card"><img src="${file(im.path)}" alt="">
+      <button class="x" data-i="${i}" title="Remove">×</button>
+      <div class="body"><div class="lab">Image ${i + 1 + (S.still ? 1 : 0)}</div>
+        <div class="hint mono">${esc(im.size)}</div>
+        ${im.problem ? `<div class="note">${esc(im.problem)}. A padded copy is sent; your file is not changed.</div>` : ""}
+        <input type="text" data-w="${i}" placeholder="what it is (optional)" value="${esc(im.what)}"></div></div>`).join("");
+  $("imgGrid").querySelectorAll(".x").forEach((b) => b.onclick = () => { S.images.splice(+b.dataset.i, 1); drawImages(); refresh(); });
+  $("imgGrid").querySelectorAll("input[data-w]").forEach((inp) => inp.oninput = () => { S.images[+inp.dataset.w].what = inp.value; });
+}
+
+// mode
+$("modeSeg").querySelectorAll("button").forEach((b) => b.onclick = () => {
+  S.mode = b.dataset.mode;
+  $("modeSeg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  const swap = S.mode === "swap";
+  $("targetBox").classList.toggle("hidden", !swap);
+  $("t2").textContent = swap ? "The new thing" : "Your cast";
+  $("h1").textContent = swap ? "Everything in it is kept except the one thing you replace. 2 to 15 seconds."
+                             : "Its motion, timing and camera are kept. 2 to 15 seconds.";
+  $("h2").textContent = swap ? "Image 1 is what goes into the clip: a product, an outfit, an object. Plain background works best."
+                             : "Image 1 is the person who takes over the clip. Add more angles or outfits if you have them (up to 9).";
+  S.still = null; S.stillFolder = null; $("stillGrid").innerHTML = ""; drawImages(); refresh();
+});
+$("target").oninput = refresh;
+
+function ready() {
+  return S.clip && !S.clip.problem && S.images.length && (S.mode === "copy" || $("target").value.trim());
+}
+function refresh() {
+  $("stillBtn").disabled = !ready() || (!$("mNbp").checked && !$("mFlux").checked);
+  $("runBtn").disabled = !ready();
+  $("s1").classList.toggle("done", !!S.clip && !S.clip.problem);
+  $("s2").classList.toggle("done", S.images.length > 0);
+  $("s3").classList.toggle("done", !!S.still);
+  const n = S.still ? 1 : 0;
+  const lines = [];
+  if (S.clip) lines.push(`<b>Video 1</b> ${esc(S.clip.name)} (motion${S.mode === "swap" ? " and everything kept" : ""})`);
+  if (S.still) lines.push(`<b>Image 1</b> your approved preview (${esc(S.still)}, from ${S.stillAt.toFixed(2)} s): a reference for the look${S.stillAt >= 0.05 ? ", not the opening frame" : ""}`);
+  S.images.forEach((im, i) => lines.push(`<b>Image ${i + 1 + n}</b> ${esc(im.name)}${im.what ? " - " + esc(im.what) : ""}`));
+  $("sends").innerHTML = lines.map((l) => `<li>${l}</li>`).join("") || "<li>Add a clip and an image first.</li>";
+}
+$("mNbp").onchange = refresh; $("mFlux").onchange = refresh;
+
+async function follow(jid, statusEl, logEl, label) {
+  const t0 = Date.now();
+  for (;;) {
+    const j = await api("/api/job/" + jid);
+    const secs = Math.round((Date.now() - t0) / 1000);
+    statusEl.classList.remove("err");
+    statusEl.textContent = j.state === "running" ? `${label}... ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}` : "";
+    if (logEl) logEl.textContent = j.log.map((l) => `${l.at}  ${l.text}`).join("\n");
+    if (j.state !== "running") {
+      if (j.state !== "done") { statusEl.classList.add("err"); statusEl.textContent = (j.state === "refused" ? "Refused before sending: " : "Failed: ") + j.error; }
+      return j;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
+// 3. preview stills
+$("stillBtn").onclick = async () => {
+  const models = [$("mNbp").checked && "nbp", $("mFlux").checked && "flux3"].filter(Boolean);
+  $("stillBtn").disabled = true; $("stillGrid").innerHTML = "";
+  try {
+    const { job } = await api("/api/still", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: S.mode, video: S.clip.path, images: S.images, target: $("target").value, at: S.at, models }) });
+    const j = await follow(job, $("stillStatus"), null, "Recasting the frame");
+    if (j.state === "done") drawStills(j.result);
+  } catch (e) { $("stillStatus").textContent = e.message; }
+  refresh();
+};
+function drawStills(v) {
+  S.stillFolder = v.folder; S.stillFrameAt = v.at;
+  const names = { nbp: "Nano Banana Pro", flux3: "FLUX 3" };
+  const cards = [`<div class="card"><img src="${file(v.frame)}" alt=""><div class="body"><div class="lab">The frame</div><div class="hint">${v.at.toFixed(2)} s</div></div></div>`];
+  for (const [m, r] of Object.entries(v.results)) {
+    cards.push(r.file
+      ? `<div class="card" data-m="${m}"><img src="${file(r.file)}" alt=""><div class="body"><div class="lab">${names[m]}</div>
+           <div class="hint">${v.how === "fake" ? "simulated" : esc(money(r.credits, r.usd))}</div>
+           <button class="ghost" data-pick="${m}" style="margin-top:6px">Approve</button></div></div>`
+      : `<div class="card"><div class="body"><div class="lab">${names[m]}</div><div class="problem">${esc(r.outcome)} ${esc(r.error || "")}</div></div></div>`);
+  }
+  $("stillGrid").innerHTML = cards.join("");
+  $("stillGrid").querySelectorAll("[data-pick]").forEach((b) => b.onclick = async () => {
+    await api("/api/approve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ folder: S.stillFolder, pick: b.dataset.pick }) });
+    S.still = names[b.dataset.pick]; S.stillAt = S.stillFrameAt;
+    $("stillGrid").querySelectorAll(".card").forEach((c) => c.classList.toggle("picked", c.dataset.m === b.dataset.pick));
+    drawImages(); refresh();
+  });
+}
+
+// 4. the video
+$("runBtn").onclick = async () => {
+  if (S.how === "live" && !confirm("This sends a paid H3 request. Go?")) return;
+  $("runBtn").disabled = true; $("runLog").textContent = "";
+  try {
+    const { job } = await api("/api/run", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: S.mode, video: S.clip.path, images: S.images, target: $("target").value,
+                             still: S.still ? S.stillFolder : null, resolution: $("res").value, fit: true }) });
+    const j = await follow(job, $("runStatus"), $("runLog"), "Making the video");
+    if (j.state === "done") { showRun(j.result); loadHistory(); }
+  } catch (e) { $("runStatus").textContent = e.message; }
+  refresh();
+};
+
+// 5. the result
+const E = { view: null, version: null, tin: 0, tout: 0, nudge: 0, len: 0 };
+function filesFor(v, version) {
+  const e = version && v.edits.find((x) => x.version === version);
+  return e ? e.files : v.files;
+}
+function showRun(v, version) {
+  E.view = v; E.version = version === undefined ? (v.edits.length ? v.edits[v.edits.length - 1].version : null) : version;
+  $("s5").classList.remove("hidden");
+  const files = filesFor(v, E.version);
+  const order = ["split", "side", "synced", "raw"].filter((k) => files[k]);
+  $("tabs").innerHTML = order.map((k, i) => `<button class="ghost${i ? "" : " on"}" data-k="${k}">${TAB_NAMES[k]}</button>`).join("");
+  const play = (k) => { $("outVideo").src = file(files[k]); $("outVideo").play().catch(() => {});
+    $("tabs").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.k === k)); };
+  $("tabs").querySelectorAll("button").forEach((b) => b.onclick = () => play(b.dataset.k));
+  if (order.length) play(order[0]);
+  $("versions").innerHTML = [`<button class="ghost${E.version ? "" : " on"}" data-v="">Original</button>`]
+    .concat(v.edits.map((e) => `<button class="ghost${E.version === e.version ? " on" : ""}" data-v="${e.version}">${e.version} · ${e.trim[0].toFixed(2)} to ${e.trim[1].toFixed(2)} s${e.nudge ? ` · ${e.nudge > 0 ? "+" : ""}${e.nudge} f` : ""}</button>`)).join("");
+  $("versions").querySelectorAll("button").forEach((b) => b.onclick = () => showRun(E.view, b.dataset.v || null));
+  $("editor").classList.toggle("hidden", !v.files.synced);
+  const cur = E.version && v.edits.find((x) => x.version === E.version);
+  E.len = v.length || 0; E.nudge = cur ? cur.nudge : 0;
+  E.tin = cur ? cur.trim[0] : 0; E.tout = cur ? cur.trim[1] : E.len;
+  for (const id of ["tIn", "tOut"]) { $(id).max = E.len.toFixed(2); }
+  // Edits are made on the original timeline, so the trim shows against the original length.
+  $("tIn").value = E.tin; $("tOut").value = E.tout; drawTrim();
+  const w = v.warp;
+  const inSync = w && Math.abs(w.scale - 1) < 0.01 && Math.abs(w.offset) < 0.03;
+  $("syncLine").innerHTML = w ? (inSync ? `<b>Already on the beat.</b> <span class="mono">(match ${w.correlation})</span>`
+      : `H3's version: ${esc(w.reads_as.replace(/^the recast /, ""))}. <b>Put back on the beat.</b> <span class="mono">(${esc(w.method)}, match ${w.correlation})</span>`) :
+    (v.outcome === "made" ? "" : `<span class="problem">${esc(v.outcome)} ${esc(v.error || "")}</span>`);
+  $("downloads").innerHTML = order.map((k) => `<a href="${file(files[k])}" download>${E.version ? E.version + "_" : ""}${k}.mp4</a>`).join("") +
+    `<a href="${file(v.path + "/receipt.json")}" download>receipt.json</a>`;
+  $("receiptBody").innerHTML = `<table>
+    <tr><th>Made</th><td class="mono">${esc(v.made_at)} · ${esc(v.how)} · ${esc(v.mode)}</td></tr>
+    <tr><th>Cost</th><td class="mono">${esc(v.how === "fake" ? "simulated, nothing charged" : money(v.credits, v.usd))}${v.price_note ? `<br><span class="hint">${esc(v.price_note)}</span>` : ""}</td></tr>
+    <tr><th>Settings</th><td class="mono">${esc(JSON.stringify(v.settings))}</td></tr>
+    <tr><th>Prompt</th><td>${esc(v.prompt)}</td></tr>
+    ${v.inputs.map((f) => `<tr><th>${esc(f.label)}</th><td class="mono">${esc(f.name)} · ${esc(f.size || "")} ${f.seconds ? esc(f.seconds) + " s" : ""}<br>sha256 ${esc(f.sha256)}</td></tr>`).join("")}
+  </table>`;
+  if (version === undefined) $("s5").scrollIntoView({ behavior: "smooth" });
+}
+
+function drawTrim() {
+  const L = E.len || 1, a = (E.tin / L) * 100, b = (E.tout / L) * 100;
+  $("band").style.left = a + "%"; $("band").style.width = Math.max(0, b - a) + "%";
+  $("trimLabel").textContent = `${E.tin.toFixed(2)} to ${E.tout.toFixed(2)} s (${(E.tout - E.tin).toFixed(2)} s)`;
+  const f = E.view?.fps || 24;
+  $("nudgeLabel").textContent = `${E.nudge > 0 ? "+" : ""}${E.nudge} frame${Math.abs(E.nudge) === 1 ? "" : "s"} (${(E.nudge / f).toFixed(3)} s)`;
+}
+$("tIn").oninput = () => { E.tin = Math.min(+$("tIn").value, E.tout - 0.5); $("tIn").value = E.tin; drawTrim(); if (!E.version) $("outVideo").currentTime = E.tin; };
+$("tOut").oninput = () => { E.tout = Math.max(+$("tOut").value, E.tin + 0.5); $("tOut").value = E.tout; drawTrim(); if (!E.version) $("outVideo").currentTime = Math.max(E.tin, E.tout - 1); };
+$("setIn").onclick = () => { E.tin = Math.min($("outVideo").currentTime + (E.version ? E.tin : 0), E.tout - 0.5); $("tIn").value = E.tin; drawTrim(); };
+$("setOut").onclick = () => { E.tout = Math.max($("outVideo").currentTime + (E.version ? E.tin : 0), E.tin + 0.5); $("tOut").value = E.tout; drawTrim(); };
+$("nEarlier").onclick = () => { E.nudge -= 1; drawTrim(); };
+$("nLater").onclick = () => { E.nudge += 1; drawTrim(); };
+$("outVideo").addEventListener("timeupdate", () => {
+  const v = $("outVideo");
+  if (!E.view || !E.len) return;
+  const t = v.currentTime + (E.version ? E.tin : 0);
+  $("head").style.left = (t / E.len) * 100 + "%";
+  // Previewing the original: loop between the in and out points so the cut can be judged before rendering.
+  if (!E.version && !v.paused && (v.currentTime > E.tout || v.currentTime < E.tin - 0.05)) v.currentTime = E.tin;
+});
+$("editBtn").onclick = async () => {
+  $("editBtn").disabled = true;
+  try {
+    const { job } = await api("/api/edit", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ folder: E.view.folder, in: E.tin, out: E.tout, nudge: E.nudge }) });
+    const j = await follow(job, $("editStatus"), null, "Rendering the edit");
+    if (j.state === "done") { showRun(j.result); $("editStatus").textContent = "Edit rendered: " + j.result.edits.at(-1).version; }
+  } catch (e) { $("editStatus").textContent = e.message; }
+  $("editBtn").disabled = false;
+};
+
+async function loadHistory() {
+  const runs = await api("/api/runs");
+  if (!runs.length) return;
+  $("history").innerHTML = runs.map((r, i) => `<div class="hist" data-i="${i}"><span class="pill">${esc(r.mode)}</span>
+    <span class="pill ${r.outcome === "made" ? "made" : r.outcome === "failed" ? "failed" : ""}">${esc(r.how === "fake" ? "simulated" : r.outcome)}</span>
+    <span>${esc(r.inputs[0]?.name || "")}${r.still ? " · with preview" : ""}</span><span class="when">${esc(r.folder)}</span></div>`).join("");
+  $("history").querySelectorAll(".hist").forEach((h) => h.onclick = () => showRun(runs[+h.dataset.i]));
+}
+
+(async () => {
+  const c = await api("/api/config");
+  S.how = c.how;
+  $("badge").className = "badge " + c.how;
+  $("badge").textContent = c.how === "live" ? "LIVE · CLICKS COST CREDITS" : "FAKE · FREE";
+  refresh(); loadHistory();
+})();
+</script>
+</body>
+</html>

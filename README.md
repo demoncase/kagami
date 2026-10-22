@@ -26,7 +26,16 @@ ffmpeg comes with the `imageio-ffmpeg` wheel; nothing else to install.
 
 Make a key at platform.comfy.org and keep it in a text file outside the repo.
 
-## Run it (terminal, for now)
+## The app
+
+```powershell
+python -m kagami serve
+python -m kagami serve --live --key-file E:\keys\comfy-router.txt
+```
+
+One page in your browser, top to bottom: the clip, your cast (or the new thing, in Swap), an optional preview frame to approve, the video, and the result as a synced before/after with downloads and the receipt. `serve` alone is FAKE: every click is free and the page says so. `--live` sends real requests and the page says that too; it cannot be switched from the page.
+
+## The terminal
 
 ```powershell
 python -m kagami copy --video clip.mp4 --image me.png
@@ -34,6 +43,16 @@ python -m kagami copy --video clip.mp4 --image me.png --fake
 python -m kagami copy --video clip.mp4 --image me.png --run --key-file E:\keys\comfy-router.txt
 python -m kagami swap --video clip.mp4 --image mug.png --target "the white mug on the desk" --run --key-file E:\keys\comfy-router.txt
 ```
+
+See it before you pay for video: recast one frame on Nano Banana Pro or FLUX 3 (cents, seconds), approve it, and the approved still goes to H3 as Image 1:
+
+```powershell
+python -m kagami still copy --video clip.mp4 --image me.png --model both --run --key-file E:\keys\comfy-router.txt
+python -m kagami approve stills\<folder> --pick nbp
+python -m kagami copy --video clip.mp4 --image me.png --still stills\<folder> --run --key-file E:\keys\comfy-router.txt
+```
+
+Every made video also gets `output_source_audio.mp4` (the recast with the clip's own sound), `before_after_side.mp4` and `before_after_split.mp4` (`python -m kagami finish runs\<folder>` makes them for older runs).
 
 The first line is a dry run (the default): the request is built, checked against H3's limits and saved, nothing is sent. `--fake` runs the whole path offline. `--run` is the one paid call; Kagami never retries it. If an answer is lost, `python -m kagami replay runs\<folder> --key-file ...` resends the same request under the same Idempotency-Key and Router hands back the first result instead of billing again.
 
