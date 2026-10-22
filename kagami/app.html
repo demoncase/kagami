@@ -288,6 +288,12 @@ function money(credits, usd) {
   const u = usd && usd !== "not reported" ? "$" + (+usd).toFixed(3) : null;
   return [c, u].filter(Boolean).join(" · ") || "price not reported";
 }
+// A video's price: Router's when it sent one, else the one computed from Comfy's published rate, said so.
+function runPrice(v) {
+  const said = (x) => x && x !== "not reported";
+  if (said(v.credits) || said(v.usd) || v.credits_computed == null) return money(v.credits, v.usd);
+  return `≈ ${Math.round(v.credits_computed)} credits ($${(+v.usd_computed).toFixed(2)}), computed from Comfy's published rate (${v.price_date})`;
+}
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const file = (p) => "/files/" + p.split("/").map(encodeURIComponent).join("/");
 
@@ -501,7 +507,7 @@ function showRun(v, version) {
     (v.files.comfyui ? `<a href="${file(v.files.comfyui)}" download title="The run as a ComfyUI graph on the H3 partner node, with the files it loads">comfyui.zip</a>` : "");
   $("receiptBody").innerHTML = `<table>
     <tr><th>Made</th><td class="mono">${esc(v.made_at)} · ${esc(v.how)} · ${esc(v.mode)}</td></tr>
-    <tr><th>Cost</th><td class="mono">${esc(v.how === "fake" ? "simulated, nothing charged" : money(v.credits, v.usd))}${v.price_note ? `<br><span class="hint">${esc(v.price_note)}</span>` : ""}</td></tr>
+    <tr><th>Cost</th><td class="mono">${esc(v.how === "fake" ? "simulated, nothing charged" : runPrice(v))}${v.price_note ? `<br><span class="hint">${esc(v.price_note)}</span>` : ""}</td></tr>
     <tr><th>Settings</th><td class="mono">${esc(JSON.stringify(v.settings))}</td></tr>
     <tr><th>Prompt</th><td>${esc(v.prompt)}</td></tr>
     ${v.inputs.map((f) => `<tr><th>${esc(f.label)}</th><td class="mono">${esc(f.name)} · ${esc(f.size || "")} ${f.seconds ? esc(f.seconds) + " s" : ""}<br>sha256 ${esc(f.sha256)}</td></tr>`).join("")}

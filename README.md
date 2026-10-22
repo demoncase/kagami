@@ -12,7 +12,7 @@ Work in progress for Comfy's Open Source Higgsfield challenge (October 2026).
 ## What makes it different
 
 - **Approve the still before you pay for video.** Kagami recasts one frame first; the video is made only from a frame you approved.
-- **Every result has a receipt.** Each run writes `receipt.json`: every input with its hash, the exact request sent, the model, the seed, the request id, and the cost Router reported (or "not reported", never a guessed zero).
+- **Every result has a receipt.** Each run writes `receipt.json`: every input with its hash, the exact request sent, the model, the seed, the request id, and the cost Router reported (or "not reported", never a guessed zero). Router does not repeat the price on a replay, so beside it Kagami keeps a price computed from Comfy's published rate (`kagami/prices.json`, with the source and the date read), always labelled computed. `python -m kagami price runs\<folder>` adds it to an older run.
 
 ## Setup (Windows, PowerShell)
 

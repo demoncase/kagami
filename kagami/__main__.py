@@ -18,7 +18,16 @@ import json
 import sys
 from pathlib import Path
 
-from . import engine, finish, still, workflow
+from . import engine, finish, prices, still, workflow
+
+
+def approx() -> str:
+    """The "about" sign, or "~" on a console that cannot print it."""
+    try:
+        "≈".encode(sys.stdout.encoding or "ascii")
+        return "≈"
+    except (UnicodeEncodeError, LookupError):
+        return "~"
 
 
 def image_arg(text: str) -> tuple[Path, str]:
@@ -80,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
     cf = sub.add_parser("comfy", help="the run as a ComfyUI workflow on the H3 partner node (free, local)")
     cf.add_argument("folder", type=Path)
     cf.add_argument("--comfy-input", type=Path, help="ComfyUI's input folder: copy the run's files straight there")
+    pr = sub.add_parser("price", help="compute an older run's price from Comfy's published rate (Router's numbers untouched)")
+    pr.add_argument("folder", type=Path)
     a = ap.parse_args(argv)
 
     if a.cmd == "serve":
@@ -135,6 +146,21 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print_comfy(done)
         return 0
+    if a.cmd == "price":
+        try:
+            rec = prices.fill(a.folder)
+        except (ValueError, OSError) as exc:
+            print(f"no price: {exc}")
+            return 1
+        src = rec["price_source"]
+        extra = f", + {src['extra_images']} extra images" if src["extra_images"] else ""
+        said = prices.describe(rec) if prices.reported(rec) else "not reported"
+        print(f"  reported  {said} (Router's numbers, untouched)")
+        print(f"  computed  {rec['credits_computed']} credits, ${rec['usd_computed']} "
+              f"({src['seconds_billed']:g} s x {src['rate']} {src['rate_unit']}{extra})")
+        print(f"            seconds from {src['seconds_from']}")
+        print(f"  price     {prices.describe(rec, approx())}")
+        return 0
 
     try:
         if a.cmd == "replay":
@@ -170,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  prompt    {rec['prompt']}")
     print(f"  outcome   {rec['outcome']}")
     if "credits_used" in rec:
-        print(f"  credits   {rec['credits_used']}")
+        print(f"  price     {prices.describe(rec, approx())}")
     if rec.get("output"):
         print(f"  output    {rec['output']['path']}")
         try:

@@ -296,7 +296,9 @@ def _run_view(d: Path, full: bool = False) -> dict:
         files["comfyui"] = rel(r["comfyui"]["zip"]["path"])
     view = {"folder": d.name, "path": rel(d), "mode": r.get("mode"), "how": r.get("how"), "made_at": r.get("made_at"),
             "outcome": r.get("outcome"), "credits": r.get("credits_used"), "usd": r.get("usd_reported"),
-            "price_note": r.get("price_note"), "prompt": r.get("prompt"),
+            "price_note": r.get("price_note"), "credits_computed": r.get("credits_computed"),
+            "usd_computed": r.get("usd_computed"), "price_date": (r.get("price_source") or {}).get("date"),
+            "prompt": r.get("prompt"),
             "settings": r.get("settings"), "files": files, "warp": (fz.get("synced") or {}).get("warp"),
             "still": (r.get("still") or {}).get("pick"), "inputs": [
                 {k: f.get(k) for k in ("label", "name", "sha256", "size", "seconds", "what")} for f in r.get("inputs", [])],

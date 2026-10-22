@@ -1,0 +1,14 @@
+{
+  "note": "Comfy's published rates, kept as data. Kagami computes a price from these only when Router did not report one, and labels it computed.",
+  "source": "https://docs.comfy.org/development/comfy-router/pricing",
+  "read": "2026-10-22",
+  "credits_per_usd": 211,
+  "models": {
+    "minimax/minimax-h3": {
+      "credits_per_second": {"768P": 27.1557, "2K": 39.2249},
+      "billed_seconds": "output seconds plus reference-video seconds",
+      "images_included": 5,
+      "credits_per_extra_image": 12.0692
+    }
+  }
+}

@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import media
+from . import media, prices
 
 MODEL = "minimax/minimax-h3"
 VERSION = "0.1.0"
@@ -354,6 +354,10 @@ def run(i: Inputs, how: str, root: Path, api_key: str | None = None, key: str | 
     r.update(outcome="made", output={"path": str(out), "sha256": media.sha256(out), "bytes": out.stat().st_size,
                                      "seconds": round(facts.seconds, 3), "size": f"{facts.width}x{facts.height}",
                                      "fps": facts.fps, "note": "the provider's file, kept byte for byte (it carries H3's own audio)"})
+    try:  # beside Router's numbers, never over them
+        r.update(prices.compute(r))
+    except ValueError as exc:
+        r["price_source"] = {"error": str(exc)}
     save(d, r)
     return d, r
 
