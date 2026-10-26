@@ -2,7 +2,9 @@
 
 Re-shoot any clip with your own cast. Kagami (鏡, "mirror") keeps a video's motion and camera and recasts it from your images, or swaps one thing in the shot and keeps the rest. Built on the Comfy Developer Platform (Comfy Router + Comfy SDK) with MiniMax H3.
 
-Work in progress for Comfy's Open Source Higgsfield challenge (October 2026).
+Built for Comfy's Open Source Higgsfield challenge (October 2026). **Demo video:** DEMO_VIDEO_URL
+
+Not an official Comfy product.
 
 ## Modes
 
@@ -12,6 +14,8 @@ Work in progress for Comfy's Open Source Higgsfield challenge (October 2026).
 ## What makes it different
 
 - **Approve the still before you pay for video.** Kagami recasts one frame first; the video is made only from a frame you approved.
+- **It keeps the beat.** Video models drift: on our runs H3 played the motion about 8% slow and started a little late. Kagami measures the drift against the source clip and puts the result back on the source's clock, with the source's own sound (`output_synced.mp4`). A trim and beat-nudge editor in the app fine-tunes it, each edit a new version; the provider's file is never touched.
+- **Every run opens in ComfyUI.** The same files, prompt and seed, as a workflow on the MiniMax H3 partner node (see below).
 - **Every result has a receipt.** Each run writes `receipt.json`: every input with its hash, the exact request sent, the model, the seed, the request id, and the cost Router reported (or "not reported", never a guessed zero). Router does not repeat the price on a replay, so beside it Kagami keeps a price computed from Comfy's published rate (`kagami/prices.json`, with the source and the date read), always labelled computed. `python -m kagami price runs\<folder>` adds it to an older run.
 
 ## Setup (Windows, PowerShell)
@@ -82,6 +86,10 @@ Each run gets a folder under `runs\` with `receipt.json` and, when a video was m
 - `tools/probe.py`: reads the H3 model schemas from Comfy Router. Free.
 - `tools/probe_gate.py`: checks the Router run route is open with an invalid-on-purpose request. Free.
 - `tools/probe_local.py`: lists the MiniMax H3 nodes in a running ComfyUI and their inputs. Free.
+
+## Credits
+
+The demo video's base clips were made on Seedance 2.5, its cast are original characters, the voice is Fish Audio drama-3 (a licensed voice), and it was cut in After Effects and Cavalry. Every recast in it was made by Kagami on MiniMax H3 through Comfy Router, and its receipt is in the run's folder. Kagami was written with Claude.
 
 ## License
 
