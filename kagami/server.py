@@ -278,7 +278,10 @@ def create_app(port: int = 8777) -> FastAPI:
             d, r = engine.run(i, "run" if State.how == "live" else "fake", RUNS, api_key=State.key)
             if r.get("output"):
                 print("made. syncing to the source's beat and building the before/after...")
-                finish.finish(d)
+                try:
+                    finish.finish(d)
+                except Exception as exc:  # noqa: BLE001 - the video is kept either way, as in the terminal
+                    print(f"finishing failed ({exc}); the video is kept. Try: python -m kagami finish {d}")
             try:
                 workflow.export(d)
             except Exception as exc:  # noqa: BLE001 - the video is kept either way

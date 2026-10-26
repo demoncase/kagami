@@ -1,16 +1,20 @@
+import contextlib
 import json
 import subprocess
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
+
+import httpx
 
 from kagami import engine, media
 from kagami.engine import Inputs, Ref, Refused
 
 
-class Replay(unittest.TestCase):
-    """replay() on dry and fake folders made here; the send itself is never reached (engine.run is stubbed)."""
+class Folders(unittest.TestCase):
+    """Run folders made dry or fake from a scratch clip; nothing here is ever sent."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -43,6 +47,10 @@ class Replay(unittest.TestCase):
             engine.replay(d, "not-a-key")
         return run
 
+
+class Replay(Folders):
+    """replay() on folders made here; the send itself is never reached (engine.run is stubbed)."""
+
     def test_a_dry_folder_is_refused(self):
         with self.assertRaisesRegex(Refused, "dry run"):
             self.replay(self.folder("dry"))
@@ -69,6 +77,49 @@ class Replay(unittest.TestCase):
         run = self.replay(d)
         self.assertEqual(run.call_args.kwargs["key"], key)
         self.assertEqual(run.call_args.args[1], "run")
+
+
+class LostDownload(Folders):
+    """Router answers and bills, then the download fails: a fake Router and a fake CDN, nothing is sent anywhere."""
+
+    def answer(self, replayed=False, credits=272):
+        out = {"task": {"id": "t1", "status": "succeeded", "content": {"url": "https://cdn.example/out.mp4"}}}
+        res = types.SimpleNamespace(output=out, request_id="req-1", replayed=replayed, credits_used=credits)
+        return lambda *a, **k: (res, {} if replayed else {"X-Litellm-Response-Cost": "1.29"})
+
+    @staticmethod
+    def cdn(fail_with=None, data=b""):
+        @contextlib.contextmanager
+        def stream(*a, **k):
+            if fail_with:
+                raise fail_with
+            yield types.SimpleNamespace(raise_for_status=lambda: None, iter_bytes=lambda: iter([data]))
+        return stream
+
+    def send(self, answer, cdn, run=None):
+        with mock.patch.object(engine, "send", answer), mock.patch.object(httpx, "stream", cdn), \
+                mock.patch.dict("sys.modules", {"comfy_sdk": types.SimpleNamespace(Comfy=lambda **k: None)}), \
+                mock.patch("builtins.print"):
+            return run() if run else engine.run(self.i, "run", self.t / "runs", api_key="not-a-key")
+
+    def test_the_answer_is_kept_when_the_download_fails(self):
+        with self.assertRaises(httpx.ConnectError):
+            self.send(self.answer(), self.cdn(httpx.ConnectError("CDN dropped")))
+        d = next((self.t / "runs").glob("2*"))
+        r = json.loads((d / "receipt.json").read_text(encoding="utf-8"))
+        self.assertEqual((r["request_id"], r["credits_used"], r["usd_reported"]), ("req-1", 272, "1.29"))
+        self.assertEqual(r["task"]["status"], "succeeded")
+        self.assertIn("could not be downloaded", r["outcome"])
+        self.assertEqual([p.name for p in d.iterdir() if "output" in p.name], [])  # no half file
+        engine.replayable(r, d)  # a lost answer: replay may collect it
+
+        # The replay: Router hands back the same answer with no price; the first one's numbers stay.
+        clip = (self.t / "clip.mp4").read_bytes()
+        _, r2 = self.send(self.answer(replayed=True, credits=None), self.cdn(data=clip),
+                          run=lambda: engine.replay(d, "not-a-key"))
+        self.assertEqual((r2["outcome"], r2["credits_used"], r2["usd_reported"]), ("made", 272, "1.29"))
+        self.assertIn("first answer", r2["price_note"])
+        self.assertEqual((d / "output.mp4").read_bytes(), clip)
 
 
 if __name__ == "__main__":

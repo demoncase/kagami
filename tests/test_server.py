@@ -118,6 +118,15 @@ class App(unittest.TestCase):
         self.assertTrue(server.State.lock.acquire(blocking=False))  # let go when the job ended
         server.State.lock.release()
 
+    def test_a_finishing_error_keeps_the_run(self):
+        with mock.patch("builtins.print") as said, \
+                mock.patch.object(server.finish, "finish", side_effect=RuntimeError("ffmpeg exited 1")):
+            j = self.wait(self.c.post("/api/run", json=self.body(), headers=self.t).json()["job"])
+        self.assertEqual(j["state"], "done", j["error"])  # the video was made; finishing it is not the run failing
+        self.assertTrue(j["result"]["files"]["raw"])
+        self.assertTrue(j["result"]["files"].get("comfyui"))  # and the ComfyUI export still ran
+        self.assertTrue(any("finishing failed" in str(c.args[0]) for c in said.call_args_list if c.args))
+
 
 if __name__ == "__main__":
     unittest.main()

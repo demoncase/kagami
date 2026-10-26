@@ -385,8 +385,10 @@ def save(d: Path, receipt: dict) -> Path:
 
 
 def run(i: Inputs, how: str, root: Path, api_key: str | None = None, key: str | None = None,
-        out_dir: Path | None = None, wait_minutes: float = WAIT_MINUTES) -> tuple[Path, dict]:
-    """Build, then dry / fake / run. Returns the run folder and the receipt."""
+        out_dir: Path | None = None, wait_minutes: float = WAIT_MINUTES,
+        earlier: dict | None = None) -> tuple[Path, dict]:
+    """Build, then dry / fake / run. Returns the run folder and the receipt.
+    earlier: on a replay, the run's receipt before it (its reported price is kept)."""
     if how == "run" and not api_key:
         raise Refused("a real run needs a key: --key-file or COMFY_API_KEY")
     i.copies = root / "_send_copies"
@@ -455,6 +457,10 @@ def run(i: Inputs, how: str, root: Path, api_key: str | None = None, key: str | 
             raise
     r.update(seconds_waited=round(time.monotonic() - t0, 1), request_id=res.request_id,
              replayed=res.replayed, **price(res, headers), router_headers=headers)
+    if earlier and prices.reported(earlier) and not prices.reported(r):
+        # Router reported the price on the first answer and does not repeat it on a replay: keep its numbers.
+        r.update(credits_used=earlier.get("credits_used"), usd_reported=earlier.get("usd_reported"),
+                 price_note=f"reported by Router on the first answer ({earlier.get('request_id')}); not repeated on this replay")
     task = (res.output or {}).get("task", {}) if isinstance(res.output, dict) else {}
     r["task"] = {k: task.get(k) for k in ("id", "status", "duration", "ratio", "resolution", "model", "task_type", "usage", "error")}
     url = (task.get("content") or {}).get("url")
@@ -462,16 +468,32 @@ def run(i: Inputs, how: str, root: Path, api_key: str | None = None, key: str | 
         r["outcome"] = "nothing_made"
         save(d, r)
         return d, r
+    # Router's answer (the request id and the price it reported, which a replay never repeats) is on disk
+    # before the download, so a failed download loses only the file.
+    r["outcome"] = "answered, the video not downloaded yet (if this stays, use --replay with this folder)"
+    save(d, r)
 
     import httpx
 
     out = d / "output.mp4"
-    with httpx.stream("GET", url, timeout=300, follow_redirects=True) as resp:
-        resp.raise_for_status()
-        with out.open("wb") as f:
-            for chunk in resp.iter_bytes():
-                f.write(chunk)
-    facts = media.video_facts(out)
+    part = d / "output.mp4.part"
+    try:
+        with httpx.stream("GET", url, timeout=300, follow_redirects=True) as resp:
+            resp.raise_for_status()
+            with part.open("wb") as f:
+                for chunk in resp.iter_bytes():
+                    f.write(chunk)
+        facts = media.video_facts(part)
+        part.replace(out)
+    except Exception as exc:  # noqa: BLE001 - recorded, then raised
+        part.unlink(missing_ok=True)
+        r.update(outcome="answered, but the video could not be downloaded",
+                 error={"type": type(exc).__name__, "message": str(exc)[:2000]},
+                 note="H3 made the video and Router's answer is recorded above. "
+                      "`python -m kagami replay <this folder>` asks for the same answer again under the same key "
+                      "(no second charge), for up to 24 hours.")
+        save(d, r)
+        raise
     r.update(outcome="made", output={"path": str(out), "sha256": media.sha256(out), "bytes": out.stat().st_size,
                                      "seconds": round(facts.seconds, 3), "size": f"{facts.width}x{facts.height}",
                                      "fps": facts.fps, "note": "the provider's file, kept byte for byte (it carries H3's own audio)"})
@@ -514,7 +536,7 @@ def replay(run_folder: Path, api_key: str, wait_minutes: float = WAIT_MINUTES) -
     shutil.copyfile(run_folder / "receipt.json", keep)
     print(f"  collecting under the run's own key {old['idempotency_key']} (same body, so no second charge)")
     return run(i, "run", run_folder.parent, api_key=api_key, key=old["idempotency_key"], out_dir=run_folder,
-               wait_minutes=wait_minutes)
+               wait_minutes=wait_minutes, earlier=old)
 
 
 def read_key(key_file: str | None) -> str | None:
