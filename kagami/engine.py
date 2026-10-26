@@ -483,9 +483,23 @@ def run(i: Inputs, how: str, root: Path, api_key: str | None = None, key: str | 
     return d, r
 
 
+def replayable(old: dict, run_folder: Path) -> None:
+    """Refuse a replay unless the folder is a real send whose answer was lost. A dry or fake folder was
+    never sent (its key would start a new, paid generation), and a run with its video is done."""
+    if old.get("how") != "run":
+        raise Refused(f"{run_folder.name} is a {old.get('how', 'unknown')} run: nothing was sent under its key, "
+                      "so a replay would be a new paid run. Make one with --run instead.")
+    if old.get("output") or (run_folder / "output.mp4").exists():
+        raise Refused(f"{run_folder.name} already has its video; a replay is only for an answer that was lost")
+    if old.get("outcome") == "nothing_made":
+        raise Refused(f"{run_folder.name} was answered (nothing was made: {(old.get('task') or {}).get('error')}); "
+                      "a replay would bring back the same answer")
+
+
 def replay(run_folder: Path, api_key: str, wait_minutes: float = WAIT_MINUTES) -> tuple[Path, dict]:
     """Resend a run's exact request under its own key: Router answers the first result."""
     old = json.loads((run_folder / "receipt.json").read_text(encoding="utf-8"))
+    replayable(old, run_folder)
     a = old["args"]
     i = Inputs(mode=a["mode"], video=Path(a["video"]), images=[Ref(Path(x[0]), *x[1:]) for x in a["images"]],
                target=a["target"], prompt=a["prompt"], extra=a["extra"], change=a.get("change", ""),

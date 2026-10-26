@@ -335,7 +335,8 @@ footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--lin
 
 <script>
 const $ = (id) => document.getElementById(id);
-const S = { mode: "copy", clip: null, images: [], still: null, stillFolder: null, at: 0, how: "fake", included: 5, perImage: 12 };
+const S = { mode: "copy", clip: null, images: [], still: null, stillFolder: null, at: 0, how: "fake", included: 5, perImage: 12,
+            busy: null };  // "still" or "video" while that job runs: both paid buttons stay off until it ends
 const ROLES = {
   "": { name: "Reference", box: "what it is (optional)" },
   person: { name: "Person", box: "who in the clip: the man in the orange suit" },
@@ -349,8 +350,10 @@ const HINT2 = {
 };
 const TAB_NAMES = { split: "Split", side: "Side by side", synced: "Synced + sound", raw: "As H3 made it" };
 
+// Made when the server started and written into this page; the server refuses an /api call without it.
+const TOKEN = "__KAGAMI_TOKEN__";
 async function api(path, opts = {}) {
-  const r = await fetch(path, opts);
+  const r = await fetch(path, { ...opts, headers: { ...(opts.headers || {}), "x-kagami-token": TOKEN } });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.detail || r.statusText);
   return body;
@@ -403,7 +406,7 @@ function setAt(t, seek) {
   $("scrub").value = S.at;
   if (seek && S.clip) {
     clearTimeout(S.frameTimer);
-    S.frameTimer = setTimeout(() => { $("pickImg").src = `/api/frame?video=${encodeURIComponent(S.clip.path)}&at=${S.at.toFixed(3)}`; }, 90);
+    S.frameTimer = setTimeout(() => { $("pickImg").src = `/api/frame?video=${encodeURIComponent(S.clip.path)}&at=${S.at.toFixed(3)}&token=${TOKEN}`; }, 90);
   }
   let best = null;
   $("strip").querySelectorAll("button").forEach((b) => {
@@ -500,8 +503,8 @@ function ready() {
     && !castProblem() && !changeProblem();
 }
 function refresh() {
-  $("stillBtn").disabled = !ready() || (!$("mNbp").checked && !$("mFlux").checked);
-  $("runBtn").disabled = !ready();
+  $("stillBtn").disabled = !!S.busy || !ready() || (!$("mNbp").checked && !$("mFlux").checked);
+  $("runBtn").disabled = !!S.busy || !ready();
   $("s1").classList.toggle("done", !!S.clip && !S.clip.problem);
   $("s2").classList.toggle("done", S.images.length > 0);
   $("s3").classList.toggle("done", !!S.still);
@@ -525,8 +528,15 @@ $("mNbp").onchange = refresh; $("mFlux").onchange = refresh;
 
 async function follow(jid, statusEl, logEl, label) {
   const t0 = Date.now();
+  let misses = 0;
   for (;;) {
-    const j = await api("/api/job/" + jid);
+    let j;
+    try { j = await api("/api/job/" + jid); misses = 0; }
+    catch (e) {  // a dropped check is not the job ending: it is still running on the server, so keep asking
+      if (++misses > 10) throw e;
+      await new Promise((r) => setTimeout(r, 3000));
+      continue;
+    }
     const secs = Math.round((Date.now() - t0) / 1000);
     statusEl.classList.remove("err");
     statusEl.textContent = j.state === "running" ? `${label}... ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}` : "";
@@ -542,7 +552,7 @@ async function follow(jid, statusEl, logEl, label) {
 // 3. preview stills
 $("stillBtn").onclick = async () => {
   const models = [$("mNbp").checked && "nbp", $("mFlux").checked && "flux3"].filter(Boolean);
-  $("stillBtn").disabled = true; $("stillGrid").innerHTML = "";
+  S.busy = "still"; refresh(); $("stillGrid").innerHTML = "";
   try {
     const { job } = await api("/api/still", { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode: S.mode, video: S.clip.path, images: cast(), target: $("target").value, at: S.at, models,
@@ -550,7 +560,7 @@ $("stillBtn").onclick = async () => {
     const j = await follow(job, $("stillStatus"), null, "Recasting the frame");
     if (j.state === "done") drawStills(j.result);
   } catch (e) { $("stillStatus").textContent = e.message; }
-  refresh();
+  S.busy = null; refresh();
 };
 function drawStills(v) {
   S.stillFolder = v.folder; S.stillFrameAt = v.at;
@@ -614,7 +624,7 @@ document.addEventListener("keydown", (e) => {
 // 4. the video
 $("runBtn").onclick = async () => {
   if (S.how === "live" && !confirm("This sends a paid H3 request. Go?")) return;
-  $("runBtn").disabled = true; $("runLog").textContent = "";
+  S.busy = "video"; refresh(); $("runLog").textContent = "";
   try {
     const { job } = await api("/api/run", { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode: S.mode, video: S.clip.path, images: cast(), target: $("target").value,
@@ -623,7 +633,7 @@ $("runBtn").onclick = async () => {
     const j = await follow(job, $("runStatus"), $("runLog"), "Making the video");
     if (j.state === "done") { showRun(j.result); loadHistory(); }
   } catch (e) { $("runStatus").textContent = e.message; }
-  refresh();
+  S.busy = null; refresh();
 };
 
 // 5. the result

@@ -5,12 +5,17 @@
 
 The mode is chosen when the server starts and shown on every screen; the page cannot switch it.
 Files stay on this machine: uploads in work/, results in runs/ and stills/.
+
+Only the page this server hands out can call it: a request must come to 127.0.0.1 or localhost on
+this port, from that origin, with the token made when the server started (the page carries it).
+Another site open in the same browser cannot start a paid run, or name a file for it to send.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import secrets
 import sys
 import threading
 import time
@@ -53,10 +58,12 @@ class State:
     how = "fake"
     key: str | None = None
     jobs: dict[str, dict] = {}
-    lock = threading.Lock()
+    lock = threading.Lock()  # held while a still or video job runs: one paid job at a time
+    token = secrets.token_urlsafe(24)  # made once per start; only the page served by this start has it
 
 
-def _job(kind: str, fn, *args, **kw) -> str:
+def _job(kind: str, fn, *args, lock: threading.Lock | None = None, **kw) -> str:
+    """Run fn in a thread. lock, when given, is already held and is let go when the job ends."""
     jid = uuid.uuid4().hex[:10]
     job = {"id": jid, "kind": kind, "state": "running", "started": time.time(), "log": [], "result": None, "error": None}
     State.jobs[jid] = job
@@ -74,9 +81,32 @@ def _job(kind: str, fn, *args, **kw) -> str:
         finally:
             job["ended"] = time.time()
             OUT.local.log = None
+            if lock is not None:
+                lock.release()
 
-    threading.Thread(target=work, daemon=True).start()
+    try:
+        threading.Thread(target=work, daemon=True).start()
+    except BaseException:
+        if lock is not None:
+            lock.release()
+        raise
     return jid
+
+
+def _paid_job(kind: str, fn) -> str:
+    """A still or a video: refused while another one runs, so a second click never sends a second request."""
+    if not State.lock.acquire(blocking=False):
+        running = next((j["kind"] for j in State.jobs.values() if j["state"] == "running" and j["kind"] in ("still", "video")), "a job")
+        raise HTTPException(409, f"the {running} job is still running; wait for it to end")
+    return _job(kind, fn, lock=State.lock)
+
+
+def _inside(path: str, base: Path) -> Path:
+    """A path the page sent, kept inside base (work/ for clips and images, stills/ for previews)."""
+    f = (ROOT / path).resolve()
+    if not f.is_relative_to(base.resolve()):
+        raise HTTPException(400, f"{path}: not a file this app made")
+    return f
 
 
 def rel(p: str | Path) -> str:
@@ -93,17 +123,42 @@ def _image_list(items: list[dict]) -> list[engine.Ref]:
     out = []
     for i in items:
         role = i.get("role") or ""
-        out.append(engine.Ref(ROOT / i["path"], (i.get("what") or "").strip() if not role else "", role,
+        out.append(engine.Ref(_inside(i["path"], WORK), (i.get("what") or "").strip() if not role else "", role,
                               (i.get("who") or "").strip() if role in ("person", "object") else ""))
     return out
 
 
-def create_app() -> FastAPI:
+JSON_POSTS = ("/api/still", "/api/approve", "/api/run", "/api/edit")  # /api/upload takes the file's own bytes
+
+
+def create_app(port: int = 8777) -> FastAPI:
     app = FastAPI(title="Kagami", docs_url=None, redoc_url=None)
+    hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+    origins = {f"http://{h}" for h in hosts}
+
+    @app.middleware("http")
+    async def only_this_page(request: Request, call_next):
+        # Host stops a rebound DNS name; Origin stops another site's form or fetch; the token stops both,
+        # and a custom header cannot be sent cross-origin without a preflight this server never answers.
+        if request.headers.get("host") not in hosts:
+            return JSONResponse({"detail": "Kagami answers on 127.0.0.1 or localhost only"}, status_code=403)
+        origin = request.headers.get("origin")
+        if origin is not None and origin not in origins:
+            return JSONResponse({"detail": f"requests from {origin} are refused"}, status_code=403)
+        path = request.url.path
+        if path.startswith("/api/"):
+            # An <img> cannot send a header, so a GET may carry the token in the address instead.
+            given = request.headers.get("x-kagami-token") or (request.query_params.get("token") if request.method == "GET" else None)
+            if not given or not secrets.compare_digest(given, State.token):
+                return JSONResponse({"detail": "no token: open Kagami from the address the server printed"}, status_code=403)
+        if request.method == "POST" and path in JSON_POSTS:
+            if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+                return JSONResponse({"detail": "JSON only"}, status_code=415)
+        return await call_next(request)
 
     @app.get("/", response_class=HTMLResponse)
     def page():
-        return PAGE.read_text(encoding="utf-8")
+        return PAGE.read_text(encoding="utf-8").replace("__KAGAMI_TOKEN__", State.token)
 
     @app.get("/api/config")
     def config():
@@ -190,20 +245,21 @@ def create_app() -> FastAPI:
     async def make_still(request: Request):
         b = await request.json()
         models = tuple(m for m in b.get("models", ["nbp"]) if m in still.MODELS) or ("nbp",)
+        video, images = _inside(b["video"], WORK), _image_list(b.get("images", []))
 
         def go():
-            d, r = still.make(b["mode"], ROOT / b["video"], _image_list(b.get("images", [])), target=b.get("target", ""),
+            d, r = still.make(b["mode"], video, images, target=b.get("target", ""),
                               change=b.get("change", ""), others=b.get("others", "keep"), at=float(b.get("at", 0)),
                               models=models, how=State.how, api_key=State.key, root=STILLS)
             return _still_view(d, r)
 
-        return {"job": _job("still", go)}
+        return {"job": _paid_job("still", go)}
 
     @app.post("/api/approve")
     async def approve(request: Request):
         b = await request.json()
         try:
-            ok = still.approve(ROOT / b["folder"], b["pick"])
+            ok = still.approve(_inside(b["folder"], STILLS), b["pick"])
         except engine.Refused as exc:
             raise HTTPException(409, str(exc)) from None
         return {"approved": ok["pick"], "path": rel(ok["path"])}
@@ -211,10 +267,10 @@ def create_app() -> FastAPI:
     @app.post("/api/run")
     async def make_video(request: Request):
         b = await request.json()
-        i = engine.Inputs(mode=b["mode"], video=ROOT / b["video"], images=_image_list(b.get("images", [])),
+        i = engine.Inputs(mode=b["mode"], video=_inside(b["video"], WORK), images=_image_list(b.get("images", [])),
                           target=b.get("target", ""), change=b.get("change", ""), others=b.get("others", "keep"),
                           resolution=b.get("resolution", "768P"), fit=bool(b.get("fit", True)),
-                          still=(ROOT / b["still"]) if b.get("still") else None, copies=RUNS / "_send_copies")
+                          still=_inside(b["still"], STILLS) if b.get("still") else None, copies=RUNS / "_send_copies")
 
         def go():
             if State.how == "live":
@@ -229,7 +285,7 @@ def create_app() -> FastAPI:
                 print(f"ComfyUI workflow not exported: {exc}")
             return _run_view(d)
 
-        return {"job": _job("video", go)}
+        return {"job": _paid_job("video", go)}
 
     @app.post("/api/edit")
     async def make_edit(request: Request):
@@ -332,4 +388,4 @@ def serve(how: str, key: str | None, port: int, open_browser: bool = True) -> No
     print(f"Kagami {engine.VERSION}: {'LIVE, clicks cost credits' if how == 'live' else 'FAKE, every click is free'}  ->  {url}")
     if open_browser:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
-    uvicorn.run(create_app(), host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.run(create_app(port), host="127.0.0.1", port=port, log_level="warning")
