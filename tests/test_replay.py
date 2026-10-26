@@ -78,6 +78,27 @@ class Replay(Folders):
         self.assertEqual(run.call_args.kwargs["key"], key)
         self.assertEqual(run.call_args.args[1], "run")
 
+    def test_a_reworded_prompt_is_refused(self):
+        d = self.lost()  # sent by this Kagami; then an update rewords the prompt
+        with mock.patch.object(engine, "COPY_PROMPT", engine.COPY_PROMPT + " Keep it sharp."):
+            with self.assertRaisesRegex(Refused, "the prompt is not the same"):
+                self.replay(d)
+
+    def test_other_settings_or_files_are_refused(self):
+        def changed(edit):
+            d = self.lost()
+            r = json.loads((d / "receipt.json").read_text(encoding="utf-8"))
+            edit(r["request"])
+            engine.save(d, r)
+            return d
+
+        with self.assertRaisesRegex(Refused, "duration"):
+            self.replay(changed(lambda q: q.update(duration=q["duration"] + 1)))
+        with self.assertRaisesRegex(Refused, "reference_image"):  # e.g. a send copy rebuilt with other bytes
+            self.replay(changed(lambda q: q["content"][2]["image_url"].update(url="<data URI of a_fit.png, ...>")))
+        with self.assertRaisesRegex(Refused, "no request"):
+            self.replay(changed(lambda q: q.clear()))
+
 
 class LostDownload(Folders):
     """Router answers and bills, then the download fails: a fake Router and a fake CDN, nothing is sent anywhere."""

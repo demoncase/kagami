@@ -56,16 +56,30 @@ def ffmpeg_exe() -> str:
 def video_facts(path: Path) -> VideoFacts:
     """Length, frame size and fps, read from `ffmpeg -i` (which prints them and exits)."""
     out = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(path)], capture_output=True, text=True).stderr
+    return read_facts(out, path.name)
+
+
+def read_facts(out: str, name: str = "the clip") -> VideoFacts:
+    """The facts from `ffmpeg -i`'s text. The size is the size shown: a phone's portrait clip is stored
+    landscape with a rotation (side data `displaymatrix: rotation of -90.00 degrees`, or a `rotate` tag
+    on older ffmpeg), and ffmpeg's stream line gives the stored size, so a quarter turn swaps it."""
     dur = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", out)
     size = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", out)
     fps = re.search(r"(\d+(?:\.\d+)?) fps", out)
     if not (dur and size):
-        raise ValueError(f"could not read {path.name} as a video:\n{out[-600:]}")
+        raise ValueError(f"could not read {name} as a video:\n{out[-600:]}")
     h, m, s = dur.groups()
+    w, ht = int(size.group(1)), int(size.group(2))
+    stream = out[size.end():]  # the first video stream's block, up to the next stream
+    stream = stream[:nxt.start()] if (nxt := re.search(r"\n\s*Stream #", stream)) else stream
+    turn = (re.search(r"displaymatrix: rotation of (-?\d+(?:\.\d+)?) degrees", stream)
+            or re.search(r"^\s*rotate\s*:\s*(-?\d+(?:\.\d+)?)\s*$", stream, re.MULTILINE))
+    if turn and round(float(turn.group(1))) % 180 == 90:
+        w, ht = ht, w
     return VideoFacts(
         seconds=int(h) * 3600 + int(m) * 60 + float(s),
-        width=int(size.group(1)),
-        height=int(size.group(2)),
+        width=w,
+        height=ht,
         fps=float(fps.group(1)) if fps else 0.0,
     )
 
@@ -111,26 +125,42 @@ def corner_colour(path: Path) -> str:
     return "0x%02X%02X%02X" % tuple(raw[:3]) if len(raw) >= 3 else "0x808080"
 
 
+def fit_size(w: int, h: int) -> tuple[int, int, int, int]:
+    """(sw, sh, tw, th): the image scaled as a whole to sw x sh (down only, never up), centred on a
+    tw x th canvas inside H3's limits. Each side of the canvas is even and at least the image's, so the
+    image is padded, never stretched; the aspect is checked after the rounding, not before."""
+    s = min(1.0, IMAGE_MAX / max(w, h))  # padding never grows the long side past max(w, h, IMAGE_MIN)
+    sw, sh = max(1, round(w * s)), max(1, round(h * s))
+    tw, th = max(sw, IMAGE_MIN), max(sh, IMAGE_MIN)
+    while True:
+        if tw / th < ASPECT_MIN:
+            tw = math.ceil(th * ASPECT_MIN)
+        elif tw / th > ASPECT_MAX:
+            th = math.ceil(tw / ASPECT_MAX)
+        tw, th = tw + tw % 2, th + th % 2
+        if ASPECT_MIN <= tw / th <= ASPECT_MAX:
+            break
+    if image_problem(tw, th):
+        raise ValueError(f"no send copy fits {w}x{h} ({tw}x{th}: {image_problem(tw, th)})")
+    return sw, sh, tw, th
+
+
 def fit_copy(path: Path, folder: Path) -> tuple[Path, dict]:
-    """A send copy inside H3's limits: padded (never cropped) with the image's own corner
-    colour to reach the aspect, then scaled down (never up) to fit. The source is untouched;
-    the copy is made once per source hash and reused."""
+    """A send copy inside H3's limits: scaled down (never up) as a whole when a side is over the
+    limit, then padded (never cropped, never stretched) with the image's own corner colour to reach
+    the least size and the aspect. The source is untouched; the copy is made once per source hash."""
     w, h = image_size(path)
-    pw, ph = w, h
-    if w / h < ASPECT_MIN:
-        pw = math.ceil(h * ASPECT_MIN)
-    elif w / h > ASPECT_MAX:
-        ph = math.ceil(w / ASPECT_MAX)
-    scale = min(1.0, IMAGE_MAX / max(pw, ph))
-    tw, th = max(IMAGE_MIN, int(pw * scale) // 2 * 2), max(IMAGE_MIN, int(ph * scale) // 2 * 2)
+    sw, sh, tw, th = fit_size(w, h)
     colour = corner_colour(path)
     folder.mkdir(parents=True, exist_ok=True)
-    out = folder / f"{path.stem}_fit_{sha256(path)[:8]}_{tw}x{th}.png"
+    out = folder / f"{path.stem}_pad_{sha256(path)[:8]}_{sw}x{sh}_in_{tw}x{th}.png"
     if not out.exists():
-        vf = f"pad={pw}:{ph}:(ow-iw)/2:(oh-ih)/2:color={colour},scale={tw}:{th}:flags=lanczos"
+        scale = f"scale={sw}:{sh}:flags=lanczos," if (sw, sh) != (w, h) else ""
+        vf = f"{scale}pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2:color={colour}"
         res = subprocess.run([ffmpeg_exe(), "-v", "error", "-y", "-i", str(path), "-vf", vf, "-frames:v", "1", str(out)],
                              capture_output=True, text=True)
         if res.returncode or not out.exists():
             raise ValueError(f"could not make a send copy of {path.name}: {res.stderr[-400:]}")
-    return out, {"from": str(path), "from_size": f"{w}x{h}", "padded_to": f"{pw}x{ph}", "pad_colour": colour,
-                 "size": f"{tw}x{th}", "how": "padded with the corner colour, then scaled down; never cropped"}
+    return out, {"from": str(path), "from_size": f"{w}x{h}", "scaled_to": f"{sw}x{sh}", "pad_colour": colour,
+                 "size": f"{tw}x{th}", "how": "scaled down as a whole if too big, then padded with the corner colour; "
+                                              "never cropped or stretched"}

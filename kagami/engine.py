@@ -505,6 +505,24 @@ def run(i: Inputs, how: str, root: Path, api_key: str | None = None, key: str | 
     return d, r
 
 
+def request_differs(now: dict, then: dict | None) -> str:
+    """'' when the rebuilt request is the one sent, else what differs. Both are the receipt's redacted form:
+    the prompt, every setting, and each file sent (its name, sha256 and size, so a rebuilt send copy counts)."""
+    if not then:
+        return "the receipt has no request"
+    for k in sorted(set(now) | set(then)):
+        if k != "content" and now.get(k) != then.get(k):
+            return f"{k} {then.get(k)!r} then, {now.get(k)!r} now"
+    a, b = now.get("content", []), then.get("content", [])
+    if len(a) != len(b):
+        return f"{len(b)} parts then, {len(a)} now"
+    for x, y in zip(a, b):
+        if x != y:
+            what = "the prompt" if x.get("type") == "text" else f"a {x.get('role', 'file')} ({x.get('type')})"
+            return f"{what} is not the same"
+    return ""
+
+
 def replayable(old: dict, run_folder: Path) -> None:
     """Refuse a replay unless the folder is a real send whose answer was lost. A dry or fake folder was
     never sent (its key would start a new, paid generation), and a run with its video is done."""
@@ -532,6 +550,10 @@ def replay(run_folder: Path, api_key: str, wait_minutes: float = WAIT_MINUTES) -
     for now, then in zip(b.files, old["inputs"]):
         if now["sha256"] != then["sha256"]:
             raise Refused(f"{now['name']} changed since the run; a replay must send the same bytes")
+    differs = request_differs(b.redacted, old.get("request"))
+    if differs:
+        raise Refused(f"the request rebuilt today is not the one sent under this key ({differs}), so Router could "
+                      "bill it as a new run. Replay it with the Kagami that sent it, or start a new run.")
     keep = run_folder / f"receipt.before-replay-{datetime.now().strftime('%H%M%S')}.json"
     shutil.copyfile(run_folder / "receipt.json", keep)
     print(f"  collecting under the run's own key {old['idempotency_key']} (same body, so no second charge)")
