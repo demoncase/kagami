@@ -563,7 +563,8 @@ $("stillBtn").onclick = async () => {
   S.busy = null; refresh();
 };
 function drawStills(v) {
-  S.stillFolder = v.folder; S.stillFrameAt = v.at;
+  // New previews are a new folder with nothing approved in it: the earlier approval goes with the old folder.
+  S.stillFolder = v.folder; S.stillFrameAt = v.at; S.still = null; S.stillAt = null; drawImages();
   const names = { nbp: "Nano Banana Pro", flux3: "FLUX 3" };
   const cards = [`<div class="card"><img src="${file(v.frame)}" alt=""><div class="body"><div class="lab">The frame</div><div class="hint">${v.at.toFixed(2)} s</div></div></div>`];
   for (const [m, r] of Object.entries(v.results)) {
@@ -637,7 +638,8 @@ $("runBtn").onclick = async () => {
 };
 
 // 5. the result
-const E = { view: null, version: null, tin: 0, tout: 0, nudge: 0, len: 0 };
+// base: where the version on screen starts on the original timeline (its own trim in, fixed); tin moves with Set In.
+const E = { view: null, version: null, base: 0, tin: 0, tout: 0, nudge: 0, len: 0 };
 function filesFor(v, version) {
   const e = version && v.edits.find((x) => x.version === version);
   return e ? e.files : v.files;
@@ -658,7 +660,7 @@ function showRun(v, version) {
   $("editor").classList.toggle("hidden", !v.files.synced);
   const cur = E.version && v.edits.find((x) => x.version === E.version);
   E.len = v.length || 0; E.nudge = cur ? cur.nudge : 0;
-  E.tin = cur ? cur.trim[0] : 0; E.tout = cur ? cur.trim[1] : E.len;
+  E.base = E.tin = cur ? cur.trim[0] : 0; E.tout = cur ? cur.trim[1] : E.len;
   for (const id of ["tIn", "tOut"]) { $(id).max = E.len.toFixed(2); }
   // Edits are made on the original timeline, so the trim shows against the original length.
   $("tIn").value = E.tin; $("tOut").value = E.tout; drawTrim();
@@ -690,14 +692,14 @@ function drawTrim() {
 }
 $("tIn").oninput = () => { E.tin = Math.min(+$("tIn").value, E.tout - 0.5); $("tIn").value = E.tin; drawTrim(); if (!E.version) $("outVideo").currentTime = E.tin; };
 $("tOut").oninput = () => { E.tout = Math.max(+$("tOut").value, E.tin + 0.5); $("tOut").value = E.tout; drawTrim(); if (!E.version) $("outVideo").currentTime = Math.max(E.tin, E.tout - 1); };
-$("setIn").onclick = () => { E.tin = Math.min($("outVideo").currentTime + (E.version ? E.tin : 0), E.tout - 0.5); $("tIn").value = E.tin; drawTrim(); };
-$("setOut").onclick = () => { E.tout = Math.max($("outVideo").currentTime + (E.version ? E.tin : 0), E.tin + 0.5); $("tOut").value = E.tout; drawTrim(); };
+$("setIn").onclick = () => { E.tin = Math.min($("outVideo").currentTime + E.base, E.tout - 0.5); $("tIn").value = E.tin; drawTrim(); };
+$("setOut").onclick = () => { E.tout = Math.max($("outVideo").currentTime + E.base, E.tin + 0.5); $("tOut").value = E.tout; drawTrim(); };
 $("nEarlier").onclick = () => { E.nudge -= 1; drawTrim(); };
 $("nLater").onclick = () => { E.nudge += 1; drawTrim(); };
 $("outVideo").addEventListener("timeupdate", () => {
   const v = $("outVideo");
   if (!E.view || !E.len) return;
-  const t = v.currentTime + (E.version ? E.tin : 0);
+  const t = v.currentTime + E.base;
   $("head").style.left = (t / E.len) * 100 + "%";
   // Previewing the original: loop between the in and out points so the cut can be judged before rendering.
   if (!E.version && !v.paused && (v.currentTime > E.tout || v.currentTime < E.tin - 0.05)) v.currentTime = E.tin;
