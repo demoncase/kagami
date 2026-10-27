@@ -2,7 +2,7 @@
 
 Re-shoot any clip with your own cast. Kagami (鏡, "mirror") keeps a video's motion and camera and recasts it from your images, or swaps one thing in the shot and keeps the rest. Built on the Comfy Developer Platform (Comfy Router + Comfy SDK) with MiniMax H3.
 
-Built for Comfy's Open Source Higgsfield challenge (October 2026). **Demo video:** DEMO_VIDEO_URL
+Built for Comfy's Open Source Higgsfield challenge (October 2026). **Demo video:** https://youtu.be/VzcjxunhhPM
 
 Not an official Comfy product.
 
@@ -17,6 +17,10 @@ Not an official Comfy product.
 - **It keeps the beat.** Video models drift: on our runs H3 played the motion about 8% slow and started a little late. Kagami measures the drift against the source clip and puts the result back on the source's clock, with the source's own sound (`output_synced.mp4`). A trim and beat-nudge editor in the app fine-tunes it, each edit a new version; the provider's file is never touched.
 - **Every run opens in ComfyUI.** The same files, prompt and seed, as a workflow on the MiniMax H3 partner node (see below).
 - **Every result has a receipt.** Each run writes `receipt.json`: every input with its hash, the exact request sent, the model, the seed, the request id, and the cost Router reported (or "not reported", never a guessed zero). Router does not repeat the price on a replay, so beside it Kagami keeps a price computed from Comfy's published rate (`kagami/prices.json`, with the source and the date read), always labelled computed. `python -m kagami price runs\<folder>` adds it to an older run.
+
+## Kagami and Openjutsu
+
+Comfy's own [Openjutsu](https://github.com/Comfy-Org/comfy-openjutsu) (October 2026) solves the same problem a different way, and both are MIT. Openjutsu runs Akatz Labs' H3 Character Swap workflow on a GPU deployment you build on the Comfy Developer Platform: SAM masks the largest person and H3 with two LoRAs repaints only them, so the rest of the shot stays pixel for pixel. Kagami calls MiniMax H3 through Comfy Router instead: no GPU to build or deploy, an API key and a `pip install`. The trade: Openjutsu keeps the background exact for one person; Kagami re-renders the frame and corrects the timing back to the source (above), and in exchange takes several people, places and objects in one run, swaps things as well as people, shows you a frame before any video is paid for, and keeps a receipt for every run.
 
 ## Setup (Windows, PowerShell)
 
@@ -89,7 +93,7 @@ Each run gets a folder under `runs\` with `receipt.json` and, when a video was m
 
 ## Credits
 
-The demo video's base clips were made on Seedance 2.5, its cast are original characters, the voice is Fish Audio drama-3 (a licensed voice), and it was cut in After Effects and Cavalry. Every recast in it was made by Kagami on MiniMax H3 through Comfy Router, and its receipt is in the run's folder. Kagami was written with Claude.
+The demo video's base clips were made on Seedance 2.5, its cast are original characters made on Nano Banana Pro, the voice is Fish Audio drama-3 (a licensed voice), and it was cut in After Effects and Cavalry. Every recast in it was made by Kagami on MiniMax H3 through Comfy Router, and its receipt is in the run's folder. Kagami was written with Claude.
 
 ## License
 
